@@ -2,7 +2,7 @@ model_class: iTransformer
 
 
 encoder:
-  from_pt: null # /expanse/lustre/scratch/zwang34/temp_project/iTransformer/checkpoints/test_zs_30/best
+  from_pt: /expanse/lustre/scratch/zwang34/temp_project/iTransformer/checkpoints/test_neuron_baseline3/best
 
   masker: 
     force_active: True
@@ -31,7 +31,7 @@ encoder:
   dropout: 0.4
   n_heads: 8
   n_layers: 5
-  max_n_channels: 300        # 0 to skip channel embeddings
+  max_n_channels: 1000        # 0 to skip channel embeddings
   embed_region: true
   neuron_regions: null       # not used in iTransformer_multi
   attn_mode: all       # all, inter-region, inter-region-switch, intra-region, mix_sequence, mix_multihead, mix_sample
@@ -40,7 +40,7 @@ encoder:
   attn_mix_ratio: [0.25, 0.25, 0.5] # inter : intra : all, should add up to 1 (mix_sample)
 
 decoder:
-  from_pt: null # /expanse/lustre/scratch/zwang34/temp_project/iTransformer/checkpoints/test_zs_30/best
+  from_pt: /expanse/lustre/scratch/zwang34/temp_project/iTransformer/checkpoints/test_neuron_baseline3/best
   mlp_decoder: true
   activation: relu
   use_cls: false

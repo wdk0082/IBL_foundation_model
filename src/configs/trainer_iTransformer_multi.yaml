@@ -11,11 +11,11 @@ wandb:
   use: True
   entity: wdk0082
   project: iTransformer_multi
-  run_name: test_neuron_baseline2
+  run_name: test_neuron_baseline3
 
 # Logging directories
 dirs:
-  log_dir: /expanse/lustre/scratch/zwang34/temp_project/iTransformer/checkpoints/test_neuron_baseline2 # save models
+  log_dir: /expanse/lustre/scratch/zwang34/temp_project/iTransformer/checkpoints/test_neuron_baseline3 # save models
   dataset_cache_dir: /expanse/lustre/scratch/zwang34/temp_project/iTransformer/checkpoints/datasets_cache  # save dataset cache
   dataset_dir: neurofm123/671c7ea7-6726-4fbe-adeb-f89c2c8e489b_aligned # not used in multi-session training.
   huggingface_org: neurofm123
@@ -29,7 +29,7 @@ dirs:
 training:
   num_epochs: 1000
   train_batch_size: 16
-  test_batch_size: 128  
+  test_batch_size: 500  
   shuffle_test_dataloader: false    # Shuffle test dataloader between epochs
 
   save_plot_every_n_epochs: 5  # Plot the model output every n epochs
@@ -62,7 +62,7 @@ data:
   use_lograte: True # use lograte
 
   max_time_length: 100    # max_time_length has to be a multiple of time patch size
-  max_space_length: 300   # max_space_length has to be a multiple of space patch size
+  max_space_length: 1000   # max_space_length has to be a multiple of space patch size
   patching: false # patching the neurons
   sort_by_depth: false
   sort_by_region: false
