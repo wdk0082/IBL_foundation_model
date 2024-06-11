@@ -309,7 +309,7 @@ class iTransformer(nn.Module):
             decoder_layers.append(nn.Linear(config.encoder.hidden_size, config.encoder.hidden_size))
             decoder_layers.append(ACT2FN[config.decoder.activation])
             # debug: add a dropout layer in MLP ?
-            # decoder_layers.append(nn.Dropout(0.6))
+            decoder_layers.append(nn.Dropout(0.2))
         decoder_layers.append(nn.Linear(config.encoder.hidden_size, n_outputs))
 
         if self.method == "ssl" and not kwargs["use_lograte"]:
