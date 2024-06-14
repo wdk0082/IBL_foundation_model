@@ -37,11 +37,8 @@ def load_model_data_local(**kwargs):
     trainer_config = kwargs['trainer_config']
     model_path = kwargs['model_path']
     seed = kwargs['seed']
-    mask_name = kwargs['mask_name']
-    mask_mode = mask_name  # local
+    mask_mode = kwargs['mask_mode']
     eid = kwargs['eid']
-    # test_size = kwargs['test_size']
-    # ? mask_mode = mask_name.split("_")[1]
 
     # set seed
     set_seed(seed)
@@ -63,16 +60,17 @@ def load_model_data_local(**kwargs):
         model = torch.load(model_path)['model']
         model.encoder.masker.mode = mask_mode
         model.encoder.masker.force_active = False
-
-        print("(eval) masking mode: ", model.encoder.masker.mode)
-        print("(eval) masking ratio: ", model.encoder.masker.ratio)
-        print("(eval) masking active: ", model.encoder.masker.force_active)
-        if 'causal' in mask_name:
+        
+        if 'causal' in mask_mode:
             model.encoder.context_forward = 0
             print("(behave decoding) context forward: ", model.encoder.context_forward)
 
     model = accelerator.prepare(model)
+    print('--------------------------------------------------')
+    print('Evaluating Configuration')
+    print('--------------------------------------------------')
     print(model)
+    print(config.model)
 
     # load the dataset
     dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)['test']
@@ -93,10 +91,12 @@ def load_model_data_local(**kwargs):
     )
 
     # check the shape of the dataset
+    batch_list = []
     for batch in dataloader:
-        print('spike data shape: {}'.format(batch['spikes_data'].shape))
-        break
-
+        batch_list.append(batch['spikes_data'])
+    _all = np.concatenate(batch_list, axis=0)
+    print(f'spike data shape:{_all}')
+    
     return model, accelerator, dataset, dataloader
 
 
@@ -645,10 +645,9 @@ def behavior_decoding(**kwargs):
     dataset_path = kwargs['dataset_path']
     test_size = kwargs['test_size']
     seed = kwargs['seed']
-    mask_name = kwargs['mask_name']
+    mask_mode = kwargs['mask_mode']
     metric = kwargs['metric']
     mask_ratio = kwargs['mask_ratio']
-    mask_mode = mask_name.split("_")[1]
 
     # set seed
     set_seed(seed)
@@ -664,7 +663,7 @@ def behavior_decoding(**kwargs):
     log_dir = os.path.join(
         config.dirs.log_dir, "train",
         "model_{}".format(config.model.model_class),
-        "method_sl", mask_name, f"ratio_{mask_ratio}", target
+        "method_sl", f'mask_{mask_mode}', f"ratio_{mask_ratio}", target
     )
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -687,7 +686,7 @@ def behavior_decoding(**kwargs):
     print("(behave decoding) masking mode: ", model.encoder.masker.mode)
     print("(behave decoding) masking ratio: ", model.encoder.masker.ratio)
     print("(behave decoding) masking active: ", model.encoder.masker.force_active)
-    if 'causal' in mask_name:
+    if 'causal' in mask_mode:
         model.encoder.context_forward = 0
         print("(behave decoding) context forward: ", model.encoder.context_forward)
 
