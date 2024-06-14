@@ -31,8 +31,8 @@ encoder:
   dropout: 0.4
   n_heads: 8
   n_layers: 5
-  max_n_channels: 0        # 0 to skip channel embeddings
-  embed_region: true
+  max_n_channels: 1000        # 0 to skip channel embeddings
+  embed_region: false
   neuron_regions: null       # not used in iTransformer_multi
   attn_mode: all       # all, inter-region, inter-region-switch, intra-region, mix_sequence, mix_multihead, mix_sample
   attn_mix_n: [2, 2, 4]        # inter-region, intra-region, all, should add up to n_heads (mix_multihead)
