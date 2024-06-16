@@ -48,6 +48,11 @@ def load_model_data_local(**kwargs):
     config = update_config(model_config, config)
     config = update_config(trainer_config, config)
 
+    # change the config model path for iTransformer
+    if config.model.model_class == 'iTransformer':
+        config['model']['encoder']['from_pt'] = model_path
+        config['model']['decoder']['from_pt'] = model_path
+
     accelerator = Accelerator()
 
     model_class = NAME2MODEL[config.model.model_class]

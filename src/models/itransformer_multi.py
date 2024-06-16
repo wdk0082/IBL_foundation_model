@@ -480,7 +480,6 @@ class iTransformer(nn.Module):
                 masked_spikes=spikes,
             )
 
-        # ASK: This is weird? What is this?
         # TODO: This need to be fixed for space padding.
         elif self.method == "dyn_behaviour":
             # Include padding in mask

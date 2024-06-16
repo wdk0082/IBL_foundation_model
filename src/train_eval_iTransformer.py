@@ -63,6 +63,8 @@ if config.wandb.use:
         )
     )
 
+last_ckpt_path = 'last' if config.model.model_class == 'iTransformer' else 'model_last.pt'
+best_ckpt_path = 'best' if config.model.model_class == 'iTransformer' else 'model_best.pt'
 
 # ------------------------------------------------------------------------------------
 # Training
@@ -218,7 +220,7 @@ if args.eval:
     # Configuration
     configs = {
         'model_config': 'src/configs/itransformer_multi.yaml',
-        'model_path': os.path.join(log_dir, 'best'),
+        'model_path': os.path.join(log_dir, best_ckpt_path),  
         'trainer_config': 'src/configs/trainer_iTransformer_multi.yaml',
         'seed': config.seed,
         'mask_mode': args.mask_mode,
