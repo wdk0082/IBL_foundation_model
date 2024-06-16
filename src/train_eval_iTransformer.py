@@ -16,7 +16,7 @@ from trainer.make import make_trainer
 from utils.eval_utils import load_model_data_local, co_smoothing_eval, behavior_decoding
 import warnings
 warnings.simplefilter("ignore")
-
+64
 # Fix Args
 EID_PATH = 'data/target_eids.txt'
 
