@@ -74,8 +74,9 @@ def load_model_data_local(**kwargs):
     print('--------------------------------------------------')
     print('Evaluating Configuration')
     print('--------------------------------------------------')
+    print(f'Load the following model from {model_path}')
     print(model)
-    print(config.model)
+    print(model.config)
 
     # load the dataset
     dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)['test']
@@ -100,7 +101,7 @@ def load_model_data_local(**kwargs):
     for batch in dataloader:
         batch_list.append(batch['spikes_data'])
     _all = np.concatenate(batch_list, axis=0)
-    print(f'spike data shape:{_all}')
+    print(f'spike data shape:{_all.shape}')
     
     return model, accelerator, dataset, dataloader
 
@@ -234,8 +235,6 @@ def co_smoothing_eval(
     is_aligned = kwargs['is_aligned']
     target_regions = kwargs['target_regions']
 
-    # hack to accommodate NDT2 - fix later
-    # TODO: what's the hack here?
     tot_num_neurons = batch['spikes_data'].size()[-1]
     uuids_list = np.array(test_dataset['cluster_uuids'][0])[:tot_num_neurons]
     region_list = np.array(test_dataset['cluster_regions'])[0][:tot_num_neurons]
@@ -279,21 +278,20 @@ def co_smoothing_eval(
         var_tasklist = ['block', 'choice', 'reward']
         var_behlist = []
 
-    for batch in test_dataloader:
-        break
-
     if mode == 'per_neuron':
 
         bps_result_list, r2_result_list = [float('nan')] * tot_num_neurons, [np.array([np.nan, np.nan])] * N
         # loop through all the neurons
         # some of them are padded value (-1). TODO: this will break if the padding value is not -1
-        print('number of neuron: {}'.format((batch['spikes_data'][0, 0, :]>=0).sum()))
+        print('Number of neurons: {}'.format((batch['spikes_data'][0, 0, :]>=0).sum()))
         for n_i in tqdm(range((batch['spikes_data'][0, 0, :]>=0).sum())):
             model.eval()
+            gt_list = []
+            pred_list = []
             with torch.no_grad():
                 for batch in test_dataloader:
                     batch = move_batch_to_device(batch, accelerator.device)
-                    gt_spike_data = batch['spikes_data'].clone()
+                    gt_list.append(batch['spikes_data'].clone())
                     mask_result = heldout_mask(
                         batch['spikes_data'].clone(),
                         mode='manual',
@@ -308,12 +306,17 @@ def co_smoothing_eval(
                         targets=batch['target'],
                         neuron_regions=batch['neuron_regions']
                     )
+                    pred_list.append(outputs.preds)
+                    
+            gt_spike_data = torch.cat(gt_list, 0)
+            pred = torch.cat(pred_list, 0)
 
-            outputs.preds = torch.exp(outputs.preds)
+            # TODO: fix this for not-poisson condition.
+            pred = torch.exp(pred)
 
             gt_spikes = gt_spike_data.detach().cpu().numpy()
-            pred_spikes = outputs.preds.detach().cpu().numpy()
-            tot_num_trials = len(batch['spikes_data'])
+            pred_spikes = pred.detach().cpu().numpy()
+            tot_num_trials = gt_spikes.shape[0]
 
             # compute co-bps
             gt_held_out = gt_spikes[:, :, [n_i]]
@@ -350,7 +353,7 @@ def co_smoothing_eval(
                     )
                     r2_result_list[idxs[i]] = r2
 
-    # TODO: only Co-Smooth is updated for iTransformer now. Update others if needed.
+    # TODO: only Co-Smooth is updated now. Update others if needed. 1. padding value problem.
     elif mode == 'forward_pred':
 
         held_out_list = kwargs['held_out_list']
@@ -365,9 +368,12 @@ def co_smoothing_eval(
             hd = np.array([hd_idx])
 
             model.eval()
+            gt_list = []
+            pred_list = []
             with torch.no_grad():
                 for batch in test_dataloader:
                     batch = move_batch_to_device(batch, accelerator.device)
+                    gt_list.append(batch['spikes_data'].clone())
                     mask_result = heldout_mask(
                         batch['spikes_data'],
                         mode=mode,
@@ -384,10 +390,18 @@ def co_smoothing_eval(
                         targets=batch['target'],
                         neuron_regions=batch['neuron_regions']
                     )
-            outputs.preds = torch.exp(outputs.preds)
+                    pred_list.append(outputs.preds)
+                    
 
-            gt_spikes = batch['spikes_data'].detach().cpu().numpy()
-            pred_spikes = outputs.preds.detach().cpu().numpy()
+            gt_spike_data = torch.cat(gt_list, 0)
+            pred = torch.cat(pred_list, 0)
+
+            # TODO: fix this for not-poisson condition.
+            pred = torch.exp(pred)
+
+            gt_spikes = gt_spike_data.detach().cpu().numpy()
+            pred_spikes = pred.detach().cpu().numpy()
+            tot_num_trials = gt_spikes.shape[0]
 
             target_neuron_idxs = np.arange(gt_spikes.shape[-1])
             target_time_idxs = held_out_list[0]
@@ -455,9 +469,12 @@ def co_smoothing_eval(
                 hd = np.array([hd_idx]).flatten()
 
                 model.eval()
+                gt_list = []
+                pred_list = []
                 with torch.no_grad():
                     for batch in test_dataloader:
                         batch = move_batch_to_device(batch, accelerator.device)
+                        gt_list.append(batch['spikes_data'].clone())
                         mask_result = heldout_mask(
                             batch['spikes_data'],
                             mode=mode,
@@ -474,10 +491,17 @@ def co_smoothing_eval(
                             targets=batch['target'],
                             neuron_regions=batch['neuron_regions']
                         )
-                outputs.preds = torch.exp(outputs.preds)
-
-                gt_spikes = batch['spikes_data'].detach().cpu().numpy()
-                pred_spikes = outputs.preds.detach().cpu().numpy()
+                        pred_list.append(outputs.preds)
+                        
+                gt_spike_data = torch.cat(gt_list, 0)
+                pred = torch.cat(pred_list, 0)
+    
+                # TODO: fix this for not-poisson condition.
+                pred = torch.exp(pred)
+    
+                gt_spikes = gt_spike_data.detach().cpu().numpy()
+                pred_spikes = pred.detach().cpu().numpy()
+                tot_num_trials = gt_spikes.shape[0]
 
                 target_neuron_idxs = mask_result['heldout_idxs']
                 target_time_idxs = np.arange(gt_spikes.shape[1])
