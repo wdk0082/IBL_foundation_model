@@ -5,7 +5,7 @@ from loader.make_loader import make_loader
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
 from utils.dataset_utils import get_data_from_h5, multi_session_dataset_iTransformer
-from models.ndt1 import NDT1
+from models.ndt1_v0 import NDT1
 from models.stpatch import STPatch
 from models.itransformer_multi import iTransformer
 from torch.optim.lr_scheduler import OneCycleLR
@@ -22,31 +22,28 @@ EID_PATH = 'data/target_eids.txt'
 
 # Dynamic Args
 ap = argparse.ArgumentParser()
-ap.add_argument("--model_name", type=str, default="iTransformer")  # TODO: enable switching here
+ap.add_argument("--model_name", type=str, default="NDT1")  
 ap.add_argument("--mask_ratio", type=float, default=0.1)
 ap.add_argument("--mask_mode", type=str, default="temporal")
-ap.add_argument("--attn_mode", type=str, default="all")
 ap.add_argument("--eid", type=str, default='671c7ea7-6726-4fbe-adeb-f89c2c8e489b')
 ap.add_argument("--base_path", type=str, default='/expanse/lustre/scratch/zwang34/temp_project/random_exp')
 ap.add_argument("--train", action='store_true')
 ap.add_argument("--eval", action='store_true')
-ap.add_argument("--prompting", action='store_true')  # Not used
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
 args = ap.parse_args()
 eid = args.eid
 
 # load config
 kwargs = {
-    "model": "include:src/configs/itransformer_multi.yaml"
+    "model": "include:src/configs/ndt1_v0/ndt1_v0.yaml"
 }
 
 config = config_from_kwargs(kwargs)
-config = update_config("src/configs/trainer_iTransformer_multi.yaml", config)
+config = update_config("src/configs/ndt1_v0/trainer_ndt1_v0.yaml", config)
 
 # Update config by dynamic args
 config['model']['encoder']['masker']['mode'] = args.mask_mode
 config['model']['encoder']['masker']['ratio'] = args.mask_ratio
-config['model']['encoder']['attn_mode'] = args.attn_mode
 
 # wandb
 if config.wandb.use:
@@ -55,15 +52,15 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="{}_model_{}_method_{}_mask_{}_ratio_{}_prompt_{}_attn_{}".format(
+        name="{}_model_{}_method_{}_mask_{}_ratio_{}".format(
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio, args.prompting, args.attn_mode
+            args.mask_mode, args.mask_ratio
         )
     )
 
-last_ckpt_path = 'last' if config.model.model_class == 'iTransformer' else 'model_last.pt'
-best_ckpt_path = 'best' if config.model.model_class == 'iTransformer' else 'model_best.pt'
+last_ckpt_path = 'last' 
+best_ckpt_path = 'best' 
 
 # ------------------------------------------------------------------------------------
 # Training
@@ -77,9 +74,7 @@ log_dir = os.path.join(
     "model_{}".format(config.model.model_class),
     "method_{}".format(config.method.model_kwargs.method_name), 
     "mask_{}".format(args.mask_mode),
-    "prompting_{}".format(args.prompting),
     "ratio_{}".format(args.mask_ratio),
-    "attn_{}".format(args.attn_mode)
 )
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -218,13 +213,13 @@ if args.eval:
     
     # Configuration
     configs = {
-        'model_config': 'src/configs/itransformer_multi.yaml',
-        'model_path': os.path.join(log_dir, best_ckpt_path),  
-        'trainer_config': 'src/configs/trainer_iTransformer_multi.yaml',
+        'model_config': 'src/configs/ndt1_v0/ndt1_v0.yaml',
+        'model_path': os.path.join(log_dir, best_ckpt_path),
+        'trainer_config': 'src/configs/ndt1_v0/trainer_ndt1_v0.yaml',
         'seed': config.seed,
         'mask_mode': args.mask_mode,
         'eid': eid
-    }  
+    }
     
     model, accelerator, dataset, dataloader = load_model_data_local(**configs)
     
@@ -234,7 +229,7 @@ if args.eval:
         eid, 
         "eval", 
         "model_{}".format(config.model.model_class),
-        "_method_{}_mask_{}_prompting_{}_ratio_{}_attn_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.prompting, args.mask_ratio, args.attn_mode),
+        "_method_{}_mask_{}_ratio_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio),
     )
     if not os.path.exists(eval_base_path):
         os.makedirs(eval_base_path)

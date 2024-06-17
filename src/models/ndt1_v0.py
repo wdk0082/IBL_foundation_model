@@ -15,7 +15,7 @@ from utils.config_utils import DictConfig, update_config
 from models.model_output import ModelOutput
 from models.masker import Masker
 
-DEFAULT_CONFIG = "src/configs/ndt1.yaml"
+DEFAULT_CONFIG = "src/configs/ndt1_v0/ndt1_v0.yaml"
 
 @dataclass
 class NDT1Output(ModelOutput):
@@ -525,18 +525,24 @@ class NDT1(nn.Module):
 
         config = update_config(DEFAULT_CONFIG, config)
         self.method = kwargs["method_name"]
-        
-        # Build encoder
+
+        # Load pretrained configs
         encoder_pt_path = config["encoder"].pop("from_pt", None)
         if encoder_pt_path is not None:
-            encoder_config = os.path.join(encoder_pt_path, "encoder_config.yaml")
+            encoder_config = torch.load(os.path.join(encoder_pt_path, "encoder_config.pth"))
             config["encoder"] = update_config(config.encoder, encoder_config)
+
+        decoder_pt_path = config["decoder"].pop("from_pt", None)
+        if decoder_pt_path is not None:
+            decoder_config = torch.load(os.path.join(decoder_pt_path, "decoder_config.pth"))
+            config["decoder"] = update_config(config.decoder, decoder_config)
+        
+        # Build encoder
         self.encoder = NeuralEncoder(config.encoder)
 
         # Load encoder weights
         if encoder_pt_path is not None:
             self.encoder.load_state_dict(torch.load(os.path.join(encoder_pt_path,"encoder.bin")))
-
 
         # Build decoder
         if self.method == "ssl":
@@ -571,7 +577,7 @@ class NDT1(nn.Module):
             
         self.decoder = nn.Sequential(*decoder_layers)
 
-        if config.decoder.from_pt is not None:
+        if decoder_pt_path is not None:
             self.decoder.load_state_dict(torch.load(os.path.join(config.decoder.from_pt,"decoder.bin")))
 
         # Build loss function
@@ -591,6 +597,9 @@ class NDT1(nn.Module):
                 self.loss_fn = nn.MSELoss(reduction="none")
             else:
                 raise Exception(f"Loss {kwargs['loss']} not implemented yet for sl")
+
+        # Save config
+        self.config = config
         
 
     def forward(
@@ -663,8 +672,10 @@ class NDT1(nn.Module):
 
 
     def save_checkpoint(self, save_dir):
-        torch.save(self.encoder.state_dict(), os.path.join(save_dir,"encoder.bin"))
-        torch.save(self.decoder.state_dict(), os.path.join(save_dir,"decoder.bin"))
+        torch.save(self.encoder.state_dict(), os.path.join(save_dir, "encoder.bin"))
+        torch.save(dict(self.config.encoder), os.path.join(save_dir, "encoder_config.pth"))
+        torch.save(self.decoder.state_dict(), os.path.join(save_dir, "decoder.bin"))
+        torch.save(dict(self.config.decoder), os.path.join(save_dir, "decoder_config.pth"))
 
     def load_checkpoint(self, load_dir):
         self.encoder.load_state_dict(torch.load(os.path.join(load_dir,"encoder.bin")))

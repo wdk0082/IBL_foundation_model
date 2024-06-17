@@ -5,7 +5,7 @@ from src.utils.dataset_utils import split_both_dataset, multi_session_zs_dataset
 from src.utils.utils import set_seed, move_batch_to_device, plot_gt_pred, metrics_list, plot_avg_rate_and_spike, \
     plot_rate_and_spike
 from src.utils.config_utils import config_from_kwargs, update_config
-from src.models.ndt1 import NDT1
+from src.models.ndt1_v0 import NDT1
 from src.models.stpatch import STPatch
 from src.models.itransformer_multi import iTransformer # use multi-version for now
 from torch.optim.lr_scheduler import OneCycleLR
@@ -48,10 +48,9 @@ def load_model_data_local(**kwargs):
     config = update_config(model_config, config)
     config = update_config(trainer_config, config)
 
-    # change the config model path for iTransformer
-    if config.model.model_class == 'iTransformer':
-        config['model']['encoder']['from_pt'] = model_path
-        config['model']['decoder']['from_pt'] = model_path
+    # change the config model path
+    config['model']['encoder']['from_pt'] = model_path
+    config['model']['decoder']['from_pt'] = model_path
 
     accelerator = Accelerator()
 
@@ -59,16 +58,11 @@ def load_model_data_local(**kwargs):
     model = model_class(config.model, **config.method.model_kwargs)
 
     if config.model.model_class == 'iTransformer':
-        # it's already loaded when initializing the model. Only thing needed is to set mask to false.
         model.masker.force_active = False
     else:
-        model = torch.load(model_path)['model']
-        model.encoder.masker.mode = mask_mode
         model.encoder.masker.force_active = False
-        
         if 'causal' in mask_mode:
             model.encoder.context_forward = 0
-            print("(behave decoding) context forward: ", model.encoder.context_forward)
 
     model = accelerator.prepare(model)
     print('--------------------------------------------------')
