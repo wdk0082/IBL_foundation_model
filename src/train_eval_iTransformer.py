@@ -5,7 +5,7 @@ from loader.make_loader import make_loader
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
 from utils.dataset_utils import get_data_from_h5, multi_session_dataset_iTransformer
-from models.ndt1 import NDT1
+from models.ndt1_v0 import NDT1
 from models.stpatch import STPatch
 from models.itransformer_multi import iTransformer
 from torch.optim.lr_scheduler import OneCycleLR

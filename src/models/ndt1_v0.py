@@ -542,7 +542,7 @@ class NDT1(nn.Module):
 
         # Load encoder weights
         if encoder_pt_path is not None:
-            self.encoder.load_state_dict(torch.load(os.path.join(encoder_pt_path,"encoder.bin")))
+            self.encoder.load_state_dict(torch.load(os.path.join(encoder_pt_path, "encoder.bin")))
 
         # Build decoder
         if self.method == "ssl":
@@ -578,7 +578,7 @@ class NDT1(nn.Module):
         self.decoder = nn.Sequential(*decoder_layers)
 
         if decoder_pt_path is not None:
-            self.decoder.load_state_dict(torch.load(os.path.join(config.decoder.from_pt,"decoder.bin")))
+            self.decoder.load_state_dict(torch.load(os.path.join(decoder_pt_path, "decoder.bin")))
 
         # Build loss function
         if self.method == "ssl":

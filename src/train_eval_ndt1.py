@@ -4,7 +4,7 @@ from accelerate import Accelerator
 from loader.make_loader import make_loader
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
-from utils.dataset_utils import get_data_from_h5, multi_session_dataset_iTransformer
+from utils.dataset_utils import get_data_from_h5, multi_session_dataset_iTransformer, split_unaligned_dataset
 from models.ndt1_v0 import NDT1
 from models.stpatch import STPatch
 from models.itransformer_multi import iTransformer
@@ -30,6 +30,8 @@ ap.add_argument("--base_path", type=str, default='/expanse/lustre/scratch/zwang3
 ap.add_argument("--train", action='store_true')
 ap.add_argument("--eval", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
+ap.add_argument("--unaligned_training", action='store_true')
+ap.add_argument("--epochs", type=int, default=1000)
 args = ap.parse_args()
 eid = args.eid
 
@@ -44,6 +46,7 @@ config = update_config("src/configs/ndt1_v0/trainer_ndt1_v0.yaml", config)
 # Update config by dynamic args
 config['model']['encoder']['masker']['mode'] = args.mask_mode
 config['model']['encoder']['masker']['ratio'] = args.mask_ratio
+config['training']['num_epochs'] = args.epochs
 
 # wandb
 if config.wandb.use:
@@ -52,10 +55,10 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="{}_model_{}_method_{}_mask_{}_ratio_{}".format(
+        name="{}_model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}".format(
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio
+            args.mask_mode, args.mask_ratio, args.unaligned_training
         )
     )
 
@@ -75,6 +78,7 @@ log_dir = os.path.join(
     "method_{}".format(config.method.model_kwargs.method_name), 
     "mask_{}".format(args.mask_mode),
     "ratio_{}".format(args.mask_ratio),
+    "ual_training_{}".format(args.unaligned_training),
 )
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -92,10 +96,18 @@ if args.train:
     set_seed(config.seed)
     
     # download dataset from huggingface
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
-    train_dataset = dataset["train"]
-    val_dataset = dataset["val"]
-    test_dataset = dataset["test"]
+    if args.unaligned_training:
+        _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+        _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir)
+        dataset = split_unaligned_dataset(_al, _ual)
+        train_dataset = dataset["train"]
+        val_dataset = dataset["val"]
+        test_dataset = dataset["test"]
+    else:
+        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+        train_dataset = dataset["train"]
+        val_dataset = dataset["val"]
+        test_dataset = dataset["test"]
     try:
         bin_size = train_dataset["binsize"][0]
     except:
@@ -229,12 +241,13 @@ if args.eval:
         eid, 
         "eval", 
         "model_{}".format(config.model.model_class),
-        "_method_{}_mask_{}_ratio_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio),
+        "_method_{}_mask_{}_ratio_{}_ual_training_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.unaligned_training),
     )
     if not os.path.exists(eval_base_path):
         os.makedirs(eval_base_path)
-        
-    
+
+    print(f'The evaluation results will be saved in: {eval_base_path}')
+
     # co-smoothing
     if co_smooth:
         print('Start co-smoothing:')

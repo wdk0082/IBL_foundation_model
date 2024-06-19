@@ -268,8 +268,8 @@ def _time_extract(data):
 
 # split the aligned and unaligned dataset together.
 def split_both_dataset(
-        aligned_dataset,
-        unaligned_dataset,
+        aligned_dataset, 
+        unaligned_dataset,  
         train_size=0.9,
         test_size=0.1,
         shuffle=True,
@@ -315,6 +315,58 @@ def split_both_dataset(
     })
 
     return new_aligned_dataset, new_unaligned_dataset
+
+def split_unaligned_dataset(
+    aligned_dataset,
+    unaligned_dataset
+):
+    al_train = aligned_dataset['train']
+    al_val = aligned_dataset['val']
+    al_test = aligned_dataset['test']
+    ual_raw = unaligned_dataset['train']
+
+    # extract these in advance to make the process much faster
+    st_train = al_train['start_times']
+    ed_train = al_train['end_times']
+    st_val = al_val['start_times']
+    ed_val = al_val['end_times']
+    st_test = al_test['start_times']
+    ed_test = al_test['end_times']
+    st_ual = ual_raw['start_times']
+    ed_ual = ual_raw['end_times']
+    
+    _tmp_idxs = []
+    test_idxs = []
+    train_idxs = []
+    val_idxs = []
+    
+    for i in tqdm(range(len(ual_raw))):
+        st_ual_data = st_ual[i]
+        ed_ual_data = ed_ual[i]
+        if any(st_ual_data<ed_al and ed_ual_data>st_al for st_al, ed_al in zip(st_test, ed_test)):
+            test_idxs.append(i)
+        else:
+            _tmp_idxs.append(i)
+
+    for i in _tmp_idxs:
+        st_ual_data = st_ual[i]
+        ed_ual_data = ed_ual[i]
+        if any(st_ual_data<ed_al and ed_ual_data>st_al for st_al, ed_al in zip(st_val, ed_val)):
+            val_idxs.append(i)
+        else:
+            train_idxs.append(i)
+
+    ual_train = ual_raw.select(train_idxs)
+    ual_val = ual_raw.select(val_idxs)
+    ual_test = ual_raw.select(test_idxs)       
+    print(f'(Unaligned dataset split) Train, Val, Test = {len(ual_train)}, {len(ual_val)}, {len(ual_test)}')
+
+    return DatasetDict({
+        'train': ual_train,
+        'val': ual_val,
+        'test': ual_test
+    })
+
 
 def multi_session_dataset_iTransformer(
     eids_path: str,
