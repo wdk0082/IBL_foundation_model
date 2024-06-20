@@ -43,10 +43,46 @@ def load_model_data_local(**kwargs):
     # set seed
     set_seed(seed)
 
-    # load the model
+    # load the configs
     config = config_from_kwargs({"model": f"include:{model_config}"})
     config = update_config(model_config, config)
     config = update_config(trainer_config, config)
+    
+    # load the dataset
+    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)['test']
+
+    if config.model.model_class == 'iTransformer':
+        num_neurons = len(dataset[0]['cluster_uuids'])
+        config['model']['encoder']['max_n_channels'] = num_neurons
+        config['data']['max_space_length'] = num_neurons
+        print(f'number of neurons: {num_neurons}')
+    else:
+        num_neurons = len(dataset[0]['cluster_uuids'])
+        config['model']['encoder']['embedder']['n_channels'] = num_neurons
+        config['data']['max_space_length'] = num_neurons
+        print(f'number of neurons: {num_neurons}')
+
+    dataloader = make_loader(
+        dataset,
+        target=config.data.target,
+        load_meta=config.data.load_meta,
+        batch_size=config.training.test_batch_size,
+        pad_to_right=True,
+        pad_value=-1.,
+        max_time_length=config.data.max_time_length,
+        max_space_length=config.data.max_space_length,
+        dataset_name=config.data.dataset_name,
+        sort_by_depth=config.data.sort_by_depth,
+        sort_by_region=config.data.sort_by_region,
+        shuffle=False
+    )
+
+    # check the shape of the dataset
+    batch_list = []
+    for batch in dataloader:
+        batch_list.append(batch['spikes_data'])
+    _all = np.concatenate(batch_list, axis=0)
+    print(f'spike data shape:{_all.shape}')
 
     # change the config model path
     config['model']['encoder']['from_pt'] = model_path
@@ -72,30 +108,7 @@ def load_model_data_local(**kwargs):
     print(model)
     print(model.config)
 
-    # load the dataset
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)['test']
 
-    dataloader = make_loader(
-        dataset,
-        target=config.data.target,
-        load_meta=config.data.load_meta,
-        batch_size=config.training.test_batch_size,
-        pad_to_right=True,
-        pad_value=-1.,
-        max_time_length=config.data.max_time_length,
-        max_space_length=config.data.max_space_length,
-        dataset_name=config.data.dataset_name,
-        sort_by_depth=config.data.sort_by_depth,
-        sort_by_region=config.data.sort_by_region,
-        shuffle=False
-    )
-
-    # check the shape of the dataset
-    batch_list = []
-    for batch in dataloader:
-        batch_list.append(batch['spikes_data'])
-    _all = np.concatenate(batch_list, axis=0)
-    print(f'spike data shape:{_all.shape}')
     
     return model, accelerator, dataset, dataloader
 
