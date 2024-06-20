@@ -32,6 +32,8 @@ ap.add_argument("--train", action='store_true')
 ap.add_argument("--eval", action='store_true')
 ap.add_argument("--prompting", action='store_true')  # Not used
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
+ap.add_argument("--epochs", type=int, default=1000)
+ap.add_argument("--suffix", type=str, default='common')
 args = ap.parse_args()
 eid = args.eid
 
@@ -47,6 +49,7 @@ config = update_config("src/configs/trainer_iTransformer_multi.yaml", config)
 config['model']['encoder']['masker']['mode'] = args.mask_mode
 config['model']['encoder']['masker']['ratio'] = args.mask_ratio
 config['model']['encoder']['attn_mode'] = args.attn_mode
+config['training']['num_epochs'] = args.epochs
 
 # wandb
 if config.wandb.use:
@@ -55,10 +58,10 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="{}_model_{}_method_{}_mask_{}_ratio_{}_prompt_{}_attn_{}".format(
+        name="{}_model_{}_method_{}_mask_{}_ratio_{}_prompt_{}_attn_{}_{}".format(
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio, args.prompting, args.attn_mode
+            args.mask_mode, args.mask_ratio, args.prompting, args.attn_mode, args.suffix
         )
     )
 
@@ -79,7 +82,8 @@ log_dir = os.path.join(
     "mask_{}".format(args.mask_mode),
     "prompting_{}".format(args.prompting),
     "ratio_{}".format(args.mask_ratio),
-    "attn_{}".format(args.attn_mode)
+    "attn_{}".format(args.attn_mode),
+    args.suffix,
 )
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -97,7 +101,7 @@ if args.train:
     set_seed(config.seed)
     
     # download dataset from huggingface
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
     train_dataset = dataset["train"]
     val_dataset = dataset["val"]
     test_dataset = dataset["test"]
@@ -234,7 +238,7 @@ if args.eval:
         eid, 
         "eval", 
         "model_{}".format(config.model.model_class),
-        "_method_{}_mask_{}_prompting_{}_ratio_{}_attn_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.prompting, args.mask_ratio, args.attn_mode),
+        "_method_{}_mask_{}_prompting_{}_ratio_{}_attn_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.prompting, args.mask_ratio, args.attn_mode, args.suffix),
     )
     if not os.path.exists(eval_base_path):
         os.makedirs(eval_base_path)

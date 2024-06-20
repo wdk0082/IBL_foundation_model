@@ -209,7 +209,7 @@ def load_ibl_dataset(cache_dir,
     if mode == "eval":
         print("eval mode: only loading test datasets...")
         for dataset_eid in tqdm(test_session_eid_dir):
-            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir)["train"]
+            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir, download_mode='force_redownload')["train"]
             all_sessions_datasets.append(session_dataset)
         all_sessions_datasets = concatenate_datasets(all_sessions_datasets)
         test_dataset = all_sessions_datasets.select_columns(DATA_COLUMNS)
@@ -218,7 +218,7 @@ def load_ibl_dataset(cache_dir,
     if split_method == 'random_split':
         print("Loading datasets...")
         for dataset_eid in tqdm(train_session_eid_dir[:num_sessions]):
-            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir)["train"]
+            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir, download_mode='force_redownload')["train"]
             all_sessions_datasets.append(session_dataset)
         all_sessions_datasets = concatenate_datasets(all_sessions_datasets)
         # split the dataset to train and test
@@ -231,7 +231,7 @@ def load_ibl_dataset(cache_dir,
         session_val_datasets = []
         session_test_datasets = []
         for dataset_eid in tqdm(train_session_eid_dir[:num_sessions]):
-            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir)
+            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir, download_mode='force_redownload')
             session_train_datasets.append(session_dataset["train"])
             session_val_datasets.append(session_dataset["val"])
             session_test_datasets.append(session_dataset["test"])
@@ -244,14 +244,14 @@ def load_ibl_dataset(cache_dir,
     elif split_method == 'session_based':
         print("Loading train dataset sessions...")
         for dataset_eid in tqdm(train_session_eid_dir):
-            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir)["train"]
+            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir, download_mode='force_redownload')["train"]
             all_sessions_datasets.append(session_dataset)
         train_dataset = concatenate_datasets(all_sessions_datasets)
 
         print("Loading test dataset session...")
         all_sessions_datasets = []
         for dataset_eid in tqdm(test_session_eid_dir):
-            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir)["train"]
+            session_dataset = load_dataset(dataset_eid, cache_dir=cache_dir, download_mode='force_redownload')["train"]
             all_sessions_datasets.append(session_dataset)
         test_dataset = concatenate_datasets(all_sessions_datasets)
         
@@ -385,7 +385,7 @@ def multi_session_dataset_iTransformer(
     dataset_test_list = []
     for eid in eid_list:
         print(f"### Loading: {eid} ###")
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         dataset_train_list.append(dataset['train'])
         dataset_val_list.append(dataset['val'])
         dataset_test_list.append(dataset['test'])
@@ -428,19 +428,19 @@ def multi_session_zs_dataset_iTransformer(
     print("############## Loading: Training set ##############")
     for eid in train_eid_list:
         print(f"### Loading: {eid} ###")
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         dataset_train_list.append(dataset['train'])
 
     print("############## Loading: Validation set ##############")
     for eid in val_eid_list:
         print(f"### Loading: {eid} ###")
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         dataset_val_list.append(dataset['val'])
 
     print("############## Loading: Test set ##############")
     for eid in test_eid_list:
         print(f"### Loading: {eid} ###")
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         dataset_test_list.append(dataset['test'])
         
     dataset_train = concatenate_datasets(dataset_train_list)

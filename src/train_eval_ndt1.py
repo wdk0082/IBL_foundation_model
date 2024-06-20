@@ -32,6 +32,7 @@ ap.add_argument("--eval", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
 ap.add_argument("--unaligned_training", action='store_true')
 ap.add_argument("--epochs", type=int, default=1000)
+ap.add_argument("--suffix", type=str, default='common')
 args = ap.parse_args()
 eid = args.eid
 
@@ -55,10 +56,10 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="{}_model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}".format(
+        name="{}_model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio, args.unaligned_training
+            args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix,
         )
     )
 
@@ -79,6 +80,7 @@ log_dir = os.path.join(
     "mask_{}".format(args.mask_mode),
     "ratio_{}".format(args.mask_ratio),
     "ual_training_{}".format(args.unaligned_training),
+    args.suffix,
 )
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -97,14 +99,14 @@ if args.train:
     
     # download dataset from huggingface
     if args.unaligned_training:
-        _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
-        _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir)
+        _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         dataset = split_unaligned_dataset(_al, _ual)
         train_dataset = dataset["train"]
         val_dataset = dataset["val"]
         test_dataset = dataset["test"]
     else:
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)
+        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         train_dataset = dataset["train"]
         val_dataset = dataset["val"]
         test_dataset = dataset["test"]
@@ -241,7 +243,7 @@ if args.eval:
         eid, 
         "eval", 
         "model_{}".format(config.model.model_class),
-        "_method_{}_mask_{}_ratio_{}_ual_training_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.unaligned_training),
+        "_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix),
     )
     if not os.path.exists(eval_base_path):
         os.makedirs(eval_base_path)

@@ -1253,8 +1253,8 @@ def viz_single_cell(X, y, y_pred, var_name2idx, var_tasklist, var_value2label, v
 
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    # plt.savefig(os.path.join(save_path, f'{neuron_region}_{neuron_idx}_{r2_trial:.2f}_{method}.png'))
-    # plt.tight_layout();
+    plt.savefig(os.path.join(save_path, f'{neuron_region}_{neuron_idx}_{r2_trial:.2f}_{method}.png'))
+    plt.tight_layout();
     # plt.show()
 
     return r2_psth, r2_trial
