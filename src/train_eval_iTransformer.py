@@ -111,6 +111,12 @@ if args.train:
         bin_size = train_dataset["bin_size"][0]
     print(train_dataset.column_names)
     print(f"bin_size: {bin_size}")
+
+    # update the num_neurons related quantity
+    num_neurons = len(train_dataset[0]['cluster_uuids'])
+    config['model']['encoder']['max_n_channels'] = num_neurons
+    config['data']['max_space_length'] = num_neurons
+    print(f'number of neurons: {num_neurons}')
     
     # make the dataloader
     train_dataloader = make_loader(train_dataset, 

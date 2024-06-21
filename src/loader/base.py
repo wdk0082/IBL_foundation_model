@@ -136,6 +136,7 @@ class BaseDataset(torch.utils.data.Dataset):
             pad_to_right=True,
             sort_by_depth=False,
             sort_by_region=False,
+            sort_by_uuids=True,
             load_meta=False,
             brain_region='all',
             dataset_name="ibl",
@@ -145,6 +146,7 @@ class BaseDataset(torch.utils.data.Dataset):
         self.pad_value = pad_value
         self.sort_by_depth = sort_by_depth
         self.sort_by_region = sort_by_region
+        self.sort_by_uuids = sort_by_uuids
         self.max_time_length = max_time_length
         self.max_space_length = max_space_length
         self.bin_size = bin_size
@@ -200,6 +202,7 @@ class BaseDataset(torch.utils.data.Dataset):
             else:
                 neuron_depths = np.array([np.nan])
             neuron_regions = np.array(data['cluster_regions']).astype('str')
+            neuron_uuids = np.array(data['cluster_uuids']).astype('str')
         else:
             neuron_depths = neuron_regions = np.array([np.nan])
 
@@ -223,6 +226,8 @@ class BaseDataset(torch.utils.data.Dataset):
                 sorted_neuron_idxs = [x for _, x in sorted(zip(neuron_depths, neuron_idxs))]
             elif self.sort_by_region:
                 sorted_neuron_idxs = [x for _, x in sorted(zip(neuron_regions, neuron_idxs))]
+            elif self.sort_by_uuids:
+                sorted_neuron_idxs = [x for _, x in sorted(zip(neuron_uuids, neuron_idxs))]
             else:
                 sorted_neuron_idxs = neuron_idxs.copy()
             binned_spikes_data = binned_spikes_data[:, sorted_neuron_idxs]
@@ -269,6 +274,7 @@ class BaseDataset(torch.utils.data.Dataset):
         space_attn_mask = _attention_mask(self.max_space_length, pad_space_length).astype(np.int64)
         binned_spikes_data = binned_spikes_data.astype(np.float32)
 
+        
         return {
             "spikes_data": binned_spikes_data,
             "time_attn_mask": time_attn_mask,
