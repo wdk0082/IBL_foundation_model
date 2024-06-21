@@ -5,14 +5,17 @@ from src.utils.dataset_utils import split_both_dataset, multi_session_zs_dataset
 from src.utils.utils import set_seed, move_batch_to_device, plot_gt_pred, metrics_list, plot_avg_rate_and_spike, \
     plot_rate_and_spike
 from src.utils.config_utils import config_from_kwargs, update_config
+from src.utils.hooks_utils import HookManager
 from src.models.ndt1_v0 import NDT1
 from src.models.stpatch import STPatch
-from src.models.itransformer_multi import iTransformer # use multi-version for now
+from src.models.itransformer_multi import iTransformer  # use multi-version for now
+from src.models.probe_decoders import ProbeDecoder
 from torch.optim.lr_scheduler import OneCycleLR
 from sklearn.metrics import r2_score
 from scipy.special import gammaln
 import matplotlib.pyplot as plt
 import torch
+from torch import nn
 from tqdm import tqdm
 import numpy as np
 from sklearn.cluster import SpectralClustering
@@ -20,6 +23,7 @@ import matplotlib.colors as colors
 import os
 from src.trainer.make import make_trainer
 from pathlib import Path
+import wandb
 
 NAME2MODEL = {"NDT1": NDT1, "STPatch": STPatch, "iTransformer": iTransformer}
 
@@ -49,7 +53,7 @@ def load_model_data_local(**kwargs):
     config = update_config(trainer_config, config)
     
     # load the dataset
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir)['test']
+    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')['test']
 
     if config.model.model_class == 'iTransformer':
         num_neurons = len(dataset[0]['cluster_uuids'])
@@ -674,145 +678,132 @@ def draw_threshold_table(
     plt.savefig('figs/table/metrics.png')
 
 
-def behavior_decoding(**kwargs):
+def behavior_probe(**kwargs):
     model_config = kwargs['model_config']
     trainer_config = kwargs['trainer_config']
+    probe_config = kwargs['probe_config']
     model_path = kwargs['model_path']
-    dataset_path = kwargs['dataset_path']
-    test_size = kwargs['test_size']
-    seed = kwargs['seed']
     mask_mode = kwargs['mask_mode']
-    metric = kwargs['metric']
-    mask_ratio = kwargs['mask_ratio']
+    seed = kwargs['seed']
+    eid = kwargs['eid']
 
     # set seed
     set_seed(seed)
 
-    # load the model
+    # load the configs
     config = config_from_kwargs({"model": f"include:{model_config}"})
     config = update_config(model_config, config)
     config = update_config(trainer_config, config)
+    config = update_config(probe_config, config)
 
-    config.model.encoder.masker.mode = mask_mode
+    # load the dataset
+    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+    train_dataset = dataset['train']
+    test_dataset = dataset['test']
+    val_dataset = dataset['val']
 
-    target = config.data.target
-    log_dir = os.path.join(
-        config.dirs.log_dir, "train",
-        "model_{}".format(config.model.model_class),
-        "method_sl", f'mask_{mask_mode}', f"ratio_{mask_ratio}", target
+    if config.model.model_class == 'iTransformer':
+        num_neurons = len(dataset[0]['cluster_uuids'])
+        config['model']['encoder']['max_n_channels'] = num_neurons
+        config['data']['max_space_length'] = num_neurons
+        print(f'number of neurons: {num_neurons}')
+    else:
+        num_neurons = len(dataset[0]['cluster_uuids'])
+        config['model']['encoder']['embedder']['n_channels'] = num_neurons
+        config['data']['max_space_length'] = num_neurons
+        print(f'number of neurons: {num_neurons}')
+    num_time_steps = config.data.max_time_length
+
+    train_dataloader = make_loader(
+        train_dataset,
+        target=config.probe.target,
+        load_meta=True,
+        batch_size=config.probe.training.train_batch_size,
+        pad_to_right=True,
+        pad_value=-1.,
+        max_time_length=config.data.max_time_length,
+        max_space_length=config.data.max_space_length,
+        dataset_name=config.data.dataset_name,
+        sort_by_depth=config.data.sort_by_depth,
+        sort_by_region=config.data.sort_by_region,
+        shuffle=True
     )
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+
+    val_dataloader = make_loader(
+        val_dataset,
+        target=config.probe.target,
+        load_meta=True,
+        batch_size=config.probe.training.test_batch_size,
+        pad_to_right=True,
+        pad_value=-1.,
+        max_time_length=config.data.max_time_length,
+        max_space_length=config.data.max_space_length,
+        dataset_name=config.data.dataset_name,
+        sort_by_depth=config.data.sort_by_depth,
+        sort_by_region=config.data.sort_by_region,
+        shuffle=False
+    )
+
+    test_dataloader = make_loader(
+        test_dataset,
+        target=config.probe.target,
+        load_meta=True,
+        batch_size=config.probe.training.test_batch_size,
+        pad_to_right=True,
+        pad_value=-1.,
+        max_time_length=config.data.max_time_length,
+        max_space_length=config.data.max_space_length,
+        dataset_name=config.data.dataset_name,
+        sort_by_depth=config.data.sort_by_depth,
+        sort_by_region=config.data.sort_by_region,
+        shuffle=False
+    )
+
+    # change the config model path
+    config['model']['encoder']['from_pt'] = model_path
+    config['model']['decoder']['from_pt'] = model_path
 
     accelerator = Accelerator()
 
     model_class = NAME2MODEL[config.model.model_class]
     model = model_class(config.model, **config.method.model_kwargs)
 
-    if not kwargs['from_scratch']:
-        pretrained_model = torch.load(model_path)['model']
-        model.encoder = pretrained_model.encoder
-        if kwargs['freeze_encoder']:
-            for param in model.encoder.parameters():
-                param.requires_grad = False
-
-    model.encoder.masker.mode = mask_mode
-    model.encoder.masker.ratio = mask_ratio
-
-    print("(behave decoding) masking mode: ", model.encoder.masker.mode)
-    print("(behave decoding) masking ratio: ", model.encoder.masker.ratio)
-    print("(behave decoding) masking active: ", model.encoder.masker.force_active)
-    if 'causal' in mask_mode:
-        model.encoder.context_forward = 0
-        print("(behave decoding) context forward: ", model.encoder.context_forward)
+    if config.model.model_class == 'iTransformer':
+        model.masker.force_active = False
+    else:
+        model.encoder.masker.force_active = False
+        if 'causal' in mask_mode:
+            model.encoder.context_forward = 0
 
     model = accelerator.prepare(model)
-
-    # load the dataset
-    dataset = load_dataset(config.dirs.dataset_dir, cache_dir=config.dirs.dataset_cache_dir)
-    train_dataset = dataset["train"]
-    val_dataset = dataset["val"]
-    test_dataset = dataset["test"]
-
-    train_dataloader = make_loader(
-        train_dataset,
-        target=config.data.target,
-        batch_size=config.training.train_batch_size,
-        pad_to_right=True,
-        pad_value=-1.,
-        max_time_length=config.data.max_time_length,
-        max_space_length=config.data.max_space_length,
-        dataset_name=config.data.dataset_name,
-        load_meta=config.data.load_meta,
-        shuffle=False
-    )
-
-    val_dataloader = make_loader(
-        val_dataset,
-        target=config.data.target,
-        batch_size=config.training.test_batch_size,
-        pad_to_right=True,
-        pad_value=-1.,
-        max_time_length=config.data.max_time_length,
-        max_space_length=config.data.max_space_length,
-        dataset_name=config.data.dataset_name,
-        load_meta=config.data.load_meta,
-        shuffle=False
-    )
-
-    test_dataloader = make_loader(
-        test_dataset,
-        target=config.data.target,
-        batch_size=10000,
-        pad_to_right=True,
-        pad_value=-1.,
-        max_time_length=config.data.max_time_length,
-        max_space_length=config.data.max_space_length,
-        dataset_name=config.data.dataset_name,
-        load_meta=config.data.load_meta,
-        shuffle=False
-    )
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=config.optimizer.lr, weight_decay=config.optimizer.wd, eps=config.optimizer.eps
-    )
-    lr_scheduler = OneCycleLR(
-        optimizer=optimizer,
-        total_steps=config.training.num_epochs * len(train_dataloader) // config.optimizer.gradient_accumulation_steps,
-        max_lr=config.optimizer.lr,
-        pct_start=config.optimizer.warmup_pct,
-        div_factor=config.optimizer.div_factor,
-    )
-
-    trainer_kwargs = {
-        "log_dir": log_dir,
-        "accelerator": accelerator,
-        "lr_scheduler": lr_scheduler,
-        "config": config,
-    }
-    trainer_ = make_trainer(
-        model=model,
-        train_dataloader=train_dataloader,
-        eval_dataloader=val_dataloader,
-        test_dataloader=test_dataloader,
-        optimizer=optimizer,
-        **trainer_kwargs
-    )
-
-    trainer_.train()
-
-    model = torch.load(os.path.join(log_dir, 'model_best.pt'))['model']
-
-    model.encoder.masker.force_active = False
-    print("(behave decoding) masking active: ", model.encoder.masker.force_active)
-
-    gt, preds = [], []
+    # freeze the main model
     model.eval()
+
+    hook_manager = HookManager(model)
+
+    # register the hooks on target layers
+    if config.model.model_class == 'NDT1':
+        for idx in range(len(model.encoder.layers)):
+            hook_manager.register_hook(f'encoder.layers.{idx}')
+        hook_manager.register_hook('encoder.out_proj')
+        hook_manager.register_hook('decoder.0')  # final layer
+    else:
+        raise NotImplementedError('Probe has not been implemented for this model.')
+
+    num_neurons = config.model.encoder.embedder.n_channels
+    num_time_steps = config.data.max_time_length
+
+    if config.probe.target == 'choice':
+        output_size = 2
+    else:
+        raise NotImplementedError('Probe has not been implemented for this target.')
+
+    # get the shape of the hook outputs
     with torch.no_grad():
         for batch in test_dataloader:
             batch = move_batch_to_device(batch, accelerator.device)
-            outputs = model(
-                batch['spikes_data'],
+            _ = model(
+                batch['spikes_data'].clone(),
                 time_attn_mask=batch['time_attn_mask'],
                 space_attn_mask=batch['space_attn_mask'],
                 spikes_timestamps=batch['spikes_timestamps'],
@@ -820,32 +811,103 @@ def behavior_decoding(**kwargs):
                 targets=batch['target'],
                 neuron_regions=batch['neuron_regions']
             )
-            gt.append(outputs.targets.clone())
-            preds.append(outputs.preds.clone())
-    gt = torch.cat(gt, dim=0)
-    preds = torch.cat(preds, dim=0)
+            break
 
-    if config.method.model_kwargs.loss == "cross_entropy":
-        preds = torch.nn.functional.softmax(preds, dim=1)
+    # build the decoders
+    decoders = {}
+    for layer_name, output in hook_manager.outputs.items():
+        decoders[layer_name] = ProbeDecoder(
+            input_feature_size=output.shape[-1],
+            input_seq_len=output.shape[-2],
+            output_size=output_size,
+            config=config.probe.decoder
+        ).to(device=accelerator.device)
 
-    if config.method.model_kwargs.clf:
-        results = metrics_list(gt=gt.argmax(1),
-                               pred=preds.argmax(1),
-                               metrics=[metric],
-                               device=accelerator.device)
-    elif config.method.model_kwargs.reg:
-        results = metrics_list(gt=gt,
-                               pred=preds,
-                               metrics=[metric],
-                               device=accelerator.device)
-
-    if not os.path.exists(kwargs['save_path']):
-        os.makedirs(kwargs['save_path'])
-    np.save(os.path.join(kwargs['save_path'], f'{target}_results.npy'), results)
-
-    return {
-        f"{target}_{metric}": results[metric],
+    # build the optimizer
+    optimizers = {
+        layer: torch.optim.AdamW(decoder.parameters(), lr=config.probe.training.optimizer.lr, weight_decay=config.probe.training.optimizer.wd, eps=config.probe.training.optimizer.eps) for layer, decoder in decoders.items()
     }
+    lr_schedulers = {
+        layer: OneCycleLR(
+            optimizer=optimizer,
+            total_steps=config.probe.training.epochs * len(
+                train_dataloader) // config.probe.training.optimizer.gradient_accumulation_steps,
+            max_lr=config.probe.training.optimizer.lr,
+            pct_start=config.probe.training.optimizer.warmup_pct,
+            div_factor=config.probe.training.optimizer.div_factor,
+        ) for layer, optimizer in optimizers.items()
+    }
+
+    # build the loss function
+    if config.probe.loss == 'cross_entropy':
+        loss_fn = nn.CrossEntropyLoss()
+    elif config.probe.loss == 'mse':
+        loss_fn = nn.MSELoss()
+    else:
+        raise NotImplementedError('loss function not implemented')
+
+    # train the probe
+    model.eval()
+    for epoch in range(config.probe.training.epochs):
+        for decoder in decoders.values():
+            decoder.train()
+
+        for batch in train_dataloader:
+            batch = move_batch_to_device(batch, accelerator.device)
+            _ = model(
+                batch['spikes_data'].clone(),
+                time_attn_mask=batch['time_attn_mask'],
+                space_attn_mask=batch['space_attn_mask'],
+                spikes_timestamps=batch['spikes_timestamps'],
+                spikes_spacestamps=batch['spikes_spacestamps'],
+                targets=batch['target'],
+                neuron_regions=batch['neuron_regions']
+            )
+            for layer_name, output in hook_manager.outputs.items():
+                decoder = decoders[layer_name]
+                optimizer = optimizers[layer_name]
+                lr_scheduler = lr_schedulers[layer_name]
+
+                optimizer.zero_grad()
+                pred = decoder(output)
+                loss = loss_fn(pred, batch['target'])
+                loss.backward()
+                optimizer.step()
+                lr_scheduler.step()
+
+        # eval
+        if epoch % config.probe.training.eval_every == 0:
+            for decoder in decoders.values():
+                decoder.eval()
+            for batch in val_dataloader:
+                batch = move_batch_to_device(batch, accelerator.device)
+                _ = model(
+                    batch['spikes_data'].clone(),
+                    time_attn_mask=batch['time_attn_mask'],
+                    space_attn_mask=batch['space_attn_mask'],
+                    spikes_timestamps=batch['spikes_timestamps'],
+                    spikes_spacestamps=batch['spikes_spacestamps'],
+                    targets=batch['target'],
+                    neuron_regions=batch['neuron_regions']
+                )
+                for layer_name, output in hook_manager.outputs.items():
+                    decoder = decoders[layer_name]
+                    pred = decoder(output)
+                    loss = loss_fn(pred, batch['target'])
+                    # compute the accuracy
+                    if config.probe.loss_fn == 'cross_entropy':
+                        predicted = torch.max(pred, 1)[1]
+                        target = torch.max(batch['target'], 1)[1]
+                        acc = (predicted == target).sum().item() / len(target)
+
+                    print(f'epoch: {epoch}, layer: {layer_name}, loss: {loss.item()}, acc: {acc}')
+                    wandb.log({f'probe/{layer_name}/loss': loss.item(), f'probe/{layer_name}/acc': acc})
+
+
+
+
+
+
 
 
 def compare_R2_scatter(**kwargs):

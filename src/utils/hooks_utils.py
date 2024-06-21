@@ -1,11 +1,8 @@
 import os
 from typing import List, Union, Optional
 from dataclasses import dataclass
-
-import torch
 from torch import nn
 from src.models.itransformer import CustomTransformerEncoderLayer
-from torchvision.ops import MLP
 import numpy as np
 
 ####################################################################################################
@@ -96,8 +93,26 @@ class TransformerLayerInputHook:
         self.layer_results = {}
 
 
+####################################################################################################
+# NDT1 Hooks
+####################################################################################################
 
+class HookManager:
+    def __init__(self, model):
+        self.model = model
+        self.outputs = {}
+        self.hooks = []
+        self.idx2name = {}
 
+    def register_hook(self, layer_name):
+        def hook(module, input, output):
+            self.outputs[layer_name] = output
 
+        layer = dict([*self.model.named_modules()])[layer_name]
+        self.hooks.append(layer.register_forward_hook(hook))
+        self.idx2name[len(self.hooks)-1] = layer_name
 
-
+    def clear_hooks(self):
+        for hook in self.hooks:
+            hook.remove()
+        self.hooks = []
