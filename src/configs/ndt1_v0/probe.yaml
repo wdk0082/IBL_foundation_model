@@ -6,14 +6,14 @@ probe:
     n_layers: 1         # for the mlp decoder  Not implemented yet
     act: relu           # for the mlp decoder  Not implemented yet
     dropout: 0.0        # for the mlp decoder
-    merge_type: concat  # concat / weighted_avg / avg
+    merge_type: weighted_avg  # concat / weighted_avg / avg
 
   training:
 
-    train_batch_size: 64
-    test_batch_size: 64
-    epochs: 300
-    test_every: 5
+    train_batch_size: 16
+    test_batch_size: 16
+    epochs: 250
+    eval_every: 5
 
     optimizer:
       gradient_accumulation_steps: 1

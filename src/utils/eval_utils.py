@@ -678,7 +678,7 @@ def draw_threshold_table(
     plt.savefig('figs/table/metrics.png')
 
 
-def behavior_probe(**kwargs):
+def behavior_probe_eval(**kwargs):
     model_config = kwargs['model_config']
     trainer_config = kwargs['trainer_config']
     probe_config = kwargs['probe_config']
@@ -800,7 +800,7 @@ def behavior_probe(**kwargs):
 
     # get the shape of the hook outputs
     with torch.no_grad():
-        for batch in test_dataloader:
+        for batch in val_dataloader:
             batch = move_batch_to_device(batch, accelerator.device)
             _ = model(
                 batch['spikes_data'].clone(),
@@ -852,7 +852,10 @@ def behavior_probe(**kwargs):
         for decoder in decoders.values():
             decoder.train()
 
+        train_loss = {} 
+        num_trials = 0
         for batch in train_dataloader:
+            num_trials += batch['spikes_data'].shape[0]
             batch = move_batch_to_device(batch, accelerator.device)
             _ = model(
                 batch['spikes_data'].clone(),
@@ -874,12 +877,21 @@ def behavior_probe(**kwargs):
                 loss.backward()
                 optimizer.step()
                 lr_scheduler.step()
+                train_loss[layer_name] = train_loss.get(layer_name, 0) + loss.item()
 
+        for layer_name, loss in train_loss.items():
+            print(f'epoch: {epoch}, layer: {layer_name}, train loss: {loss/num_trials}')
+            wandb.log({f'{layer_name} train loss': loss/num_trials})            
+    
         # eval
         if epoch % config.probe.training.eval_every == 0:
             for decoder in decoders.values():
                 decoder.eval()
+            eval_loss = {}
+            n_correct = {}
+            num_trials = 0
             for batch in val_dataloader:
+                num_trials += batch['spikes_data'].shape[0]
                 batch = move_batch_to_device(batch, accelerator.device)
                 _ = model(
                     batch['spikes_data'].clone(),
@@ -894,16 +906,19 @@ def behavior_probe(**kwargs):
                     decoder = decoders[layer_name]
                     pred = decoder(output)
                     loss = loss_fn(pred, batch['target'])
+                    eval_loss[layer_name] = eval_loss.get(layer_name, 0) + loss.item()
+                    
                     # compute the accuracy
                     if config.probe.loss_fn == 'cross_entropy':
                         predicted = torch.max(pred, 1)[1]
                         target = torch.max(batch['target'], 1)[1]
-                        acc = (predicted == target).sum().item() / len(target)
+                        _correct = (predicted == target).sum().item()
+                        n_correct[layer_name] = n_correct.get(layer_name, 0) + _correct
 
-                    print(f'epoch: {epoch}, layer: {layer_name}, loss: {loss.item()}, acc: {acc}')
-                    wandb.log({f'probe/{layer_name}/loss': loss.item(), f'probe/{layer_name}/acc': acc})
-
-
+        for layer_name, loss in eval_loss.items():
+            print(f'epoch: {epoch}, layer: {layer_name}, test loss: {loss/num_trials}, acc: {n_correct[layer_name]/num_trials}')
+            wandb.log({f'{layer_name} test loss': loss/num_trials, f'{layer_name} test acc': n_correct[layer_name]/num_trials})
+        
 
 
 

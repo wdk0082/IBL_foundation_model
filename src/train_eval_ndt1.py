@@ -13,7 +13,7 @@ import torch
 import numpy as np
 import os
 from trainer.make import make_trainer
-from utils.eval_utils import load_model_data_local, co_smoothing_eval, behavior_decoding
+from utils.eval_utils import load_model_data_local, co_smoothing_eval, behavior_probe_eval
 import warnings
 warnings.simplefilter("ignore")
 
@@ -43,6 +43,7 @@ kwargs = {
 
 config = config_from_kwargs(kwargs)
 config = update_config("src/configs/ndt1_v0/trainer_ndt1_v0.yaml", config)
+config = update_config("src/configs/ndt1_v0/probe.yaml", config)
 
 # Update config by dynamic args
 config['model']['encoder']['masker']['mode'] = args.mask_mode
@@ -220,12 +221,11 @@ if args.eval:
     
     
     # Tasks Selection
-    co_smooth = True
-    forward_pred = True
-    inter_region = True
-    intra_region = True
-    choice_decoding = False  # fix this
-    continuous_decoding = False  # fix this
+    co_smooth = False
+    forward_pred = False
+    inter_region = False
+    intra_region = False
+    behavior_probe = True
     
     # Fix Args
     n_time_steps = 100
@@ -352,48 +352,19 @@ if args.eval:
         print(results)
         wandb.log(results)
     
-    # TODO: Change this, fix this.
-    # WARNING: Don't use the following code!!
-    
-    if choice_decoding:
-        print('Start choice_decoding:')
-        configs = {
-            'model_config': 'src/configs/ndt1.yaml',
-            'model_path': f'{base_path}/results/train/model_{model_name}/method_ssl/{mask_name}/ratio_{args.mask_ratio}/model_best.pt',
-            'trainer_config': 'src/configs/trainer_sl_choice.yaml',
-            'dataset_path': '/home/exouser/Documents/IBL_foundation_model/data/671c7ea7-6726-4fbe-adeb-f89c2c8e489b_aligned',
-            'save_path': f'{base_path}/results/eval/model_{model_name}/method_ssl/{mask_name}/ratio_{args.mask_ratio}/choice_decoding',
-            'test_size': 0.2,
-            'seed': 42,
-            'mask_name': mask_name,
-            'metric': 'acc',
-            'from_scratch': False,
-            'freeze_encoder': False,
-            'mask_ratio': args.mask_ratio
-        }  
-        results = behavior_decoding(**configs)
-        print(results)
-        wandb.log(results)
-    
-    
-    if continuous_decoding:
-        print('Start continuous_decoding:')
-        configs = {
-            'model_config': 'src/configs/ndt1.yaml',
-            'model_path': f'{base_path}/results/train/model_{model_name}/method_ssl/{mask_name}/ratio_{args.mask_ratio}/model_best.pt',
-            'trainer_config': 'src/configs/trainer_sl_continuous.yaml',
-            'dataset_path': None, 
-            'save_path': f'{base_path}/results/eval/model_{model_name}/method_ssl/{mask_name}/ratio_{args.mask_ratio}/continuous_decoding',
-            'test_size': 0.2,
-            'seed': 42,
-            'mask_name': mask_name,
-            'metric': 'r2',
-            'from_scratch': False,
-            'freeze_encoder': False,
-            'mask_ratio': args.mask_ratio
-        }  
-        results = behavior_decoding(**configs)
-        print(results)
-        wandb.log(results)
+    # behavior probe
+    if behavior_probe:
+        probe_configs = {
+            'model_config': 'src/configs/ndt1_v0/ndt1_v0.yaml',
+            'trainer_config': "src/configs/ndt1_v0/trainer_ndt1_v0.yaml",
+            'probe_config': "src/configs/ndt1_v0/probe.yaml",
+            'model_path': os.path.join(log_dir, best_ckpt_path),
+            'mask_mode': args.mask_mode,
+            'seed': config.seed,
+            'eid': eid,
+        }
 
+        behavior_probe_eval(**probe_configs)
+
+            
     
