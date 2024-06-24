@@ -29,7 +29,7 @@ ap.add_argument("--eid", type=str, default='671c7ea7-6726-4fbe-adeb-f89c2c8e489b
 ap.add_argument("--base_path", type=str, default='/expanse/lustre/scratch/zwang34/temp_project/random_exp')
 ap.add_argument("--train", action='store_true')
 ap.add_argument("--eval", action='store_true')
-ad.add_argument("--probe", action='store_true')
+ap.add_argument("--probe", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
 ap.add_argument("--unaligned_training", action='store_true')
 ap.add_argument("--epochs", type=int, default=1000)
