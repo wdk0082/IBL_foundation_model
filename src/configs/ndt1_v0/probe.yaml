@@ -1,24 +1,24 @@
 probe:
 
   decoder:
-    type: linear  # linear / mlp
+    type: mlp  # linear / mlp
     hidden_size: 1024   # for the mlp decoder
     n_layers: 1         # for the mlp decoder  Not implemented yet
     act: relu           # for the mlp decoder  Not implemented yet
-    dropout: 0.0        # for the mlp decoder
+    dropout: 0.4        # for the mlp decoder
     merge_type: weighted_avg  # concat / weighted_avg / avg
 
   training:
 
     train_batch_size: 16
     test_batch_size: 16
-    epochs: 250
+    epochs: 500
     eval_every: 5
 
     optimizer:
       gradient_accumulation_steps: 1
-      lr: 1.e-3
-      wd: 0.01
+      lr: 1.e-4
+      wd: 10
       eps: 1.e-8
       warmup_pct: 0.15 # cosine/linear
       gamma: 0.95     # step

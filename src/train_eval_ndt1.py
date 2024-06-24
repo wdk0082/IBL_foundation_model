@@ -29,6 +29,7 @@ ap.add_argument("--eid", type=str, default='671c7ea7-6726-4fbe-adeb-f89c2c8e489b
 ap.add_argument("--base_path", type=str, default='/expanse/lustre/scratch/zwang34/temp_project/random_exp')
 ap.add_argument("--train", action='store_true')
 ap.add_argument("--eval", action='store_true')
+ad.add_argument("--probe", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
 ap.add_argument("--unaligned_training", action='store_true')
 ap.add_argument("--epochs", type=int, default=1000)
@@ -51,13 +52,22 @@ config['model']['encoder']['masker']['ratio'] = args.mask_ratio
 config['training']['num_epochs'] = args.epochs
 
 # wandb
+prefix = ''
+if args.train:
+    prefix += 'T'
+if args.eval:
+    prefix += 'E'
+if args.probe:
+    prefix += 'P'
+
 if config.wandb.use:
     import wandb
     wandb.init(
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="{}_model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(
+        name="({}){}_model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(
+            prefix,
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
             args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix,
@@ -225,7 +235,6 @@ if args.eval:
     forward_pred = False
     inter_region = False
     intra_region = False
-    behavior_probe = True
     
     # Fix Args
     n_time_steps = 100
@@ -351,20 +360,26 @@ if args.eval:
                         **co_smoothing_configs)
         print(results)
         wandb.log(results)
-    
-    # behavior probe
-    if behavior_probe:
-        probe_configs = {
-            'model_config': 'src/configs/ndt1_v0/ndt1_v0.yaml',
-            'trainer_config': "src/configs/ndt1_v0/trainer_ndt1_v0.yaml",
-            'probe_config': "src/configs/ndt1_v0/probe.yaml",
-            'model_path': os.path.join(log_dir, best_ckpt_path),
-            'mask_mode': args.mask_mode,
-            'seed': config.seed,
-            'eid': eid,
-        }
 
-        behavior_probe_eval(**probe_configs)
+
+# behavior probe
+if args.probe:
+
+    print("=================================")
+    print("             Probe               ")
+    print("=================================")
+    
+    probe_configs = {
+        'model_config': 'src/configs/ndt1_v0/ndt1_v0.yaml',
+        'trainer_config': "src/configs/ndt1_v0/trainer_ndt1_v0.yaml",
+        'probe_config': "src/configs/ndt1_v0/probe.yaml",
+        'model_path': os.path.join(log_dir, best_ckpt_path),
+        'mask_mode': args.mask_mode,
+        'seed': config.seed,
+        'eid': eid,
+    }
+
+    behavior_probe_eval(**probe_configs)
 
             
     

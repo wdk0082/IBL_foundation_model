@@ -703,12 +703,12 @@ def behavior_probe_eval(**kwargs):
     val_dataset = dataset['val']
 
     if config.model.model_class == 'iTransformer':
-        num_neurons = len(dataset[0]['cluster_uuids'])
+        num_neurons = len(train_dataset[0]['cluster_uuids'])
         config['model']['encoder']['max_n_channels'] = num_neurons
         config['data']['max_space_length'] = num_neurons
         print(f'number of neurons: {num_neurons}')
     else:
-        num_neurons = len(dataset[0]['cluster_uuids'])
+        num_neurons = len(train_dataset[0]['cluster_uuids'])
         config['model']['encoder']['embedder']['n_channels'] = num_neurons
         config['data']['max_space_length'] = num_neurons
         print(f'number of neurons: {num_neurons}')
@@ -846,8 +846,12 @@ def behavior_probe_eval(**kwargs):
     else:
         raise NotImplementedError('loss function not implemented')
 
-    # train the probe
+    # train and eval the probe
     model.eval()
+    
+    best_val_acc = {}
+    is_best = {}
+    test_acc = {}  # use the best model to test (selected by best val)
     for epoch in range(config.probe.training.epochs):
         for decoder in decoders.values():
             decoder.train()
@@ -866,13 +870,14 @@ def behavior_probe_eval(**kwargs):
                 targets=batch['target'],
                 neuron_regions=batch['neuron_regions']
             )
+            
             for layer_name, output in hook_manager.outputs.items():
                 decoder = decoders[layer_name]
                 optimizer = optimizers[layer_name]
                 lr_scheduler = lr_schedulers[layer_name]
 
                 optimizer.zero_grad()
-                pred = decoder(output)
+                pred = decoder(output.detach())  
                 loss = loss_fn(pred, batch['target'])
                 loss.backward()
                 optimizer.step()
@@ -885,6 +890,7 @@ def behavior_probe_eval(**kwargs):
     
         # eval
         if epoch % config.probe.training.eval_every == 0:
+            # val loss and acc
             for decoder in decoders.values():
                 decoder.eval()
             eval_loss = {}
@@ -902,24 +908,72 @@ def behavior_probe_eval(**kwargs):
                     targets=batch['target'],
                     neuron_regions=batch['neuron_regions']
                 )
+                
                 for layer_name, output in hook_manager.outputs.items():
+                    
                     decoder = decoders[layer_name]
-                    pred = decoder(output)
+                    pred = decoder(output.detach())
                     loss = loss_fn(pred, batch['target'])
                     eval_loss[layer_name] = eval_loss.get(layer_name, 0) + loss.item()
                     
                     # compute the accuracy
-                    if config.probe.loss_fn == 'cross_entropy':
+                    if config.probe.loss == 'cross_entropy':
                         predicted = torch.max(pred, 1)[1]
                         target = torch.max(batch['target'], 1)[1]
                         _correct = (predicted == target).sum().item()
                         n_correct[layer_name] = n_correct.get(layer_name, 0) + _correct
 
-        for layer_name, loss in eval_loss.items():
-            print(f'epoch: {epoch}, layer: {layer_name}, test loss: {loss/num_trials}, acc: {n_correct[layer_name]/num_trials}')
-            wandb.log({f'{layer_name} test loss': loss/num_trials, f'{layer_name} test acc': n_correct[layer_name]/num_trials})
-        
+            for layer_name, loss in eval_loss.items():
+                _acc = n_correct[layer_name]/num_trials
+                if _acc > best_val_acc.get(layer_name, -inf):
+                    best_val_acc[layer_name] = _acc
+                    is_best[layer_name] = True
+                else:
+                    is_best[layer_name] = False
+                print(f'epoch: {epoch}, layer: {layer_name}, val loss: {loss/num_trials}, acc: {_acc}')
+                wandb.log({f'{layer_name} val loss': loss/num_trials, f'{layer_name} val acc': _acc})
+            
+            # test acc
+            for decoder in decoders.values():
+                decoder.eval()
+            eval_loss = {}
+            n_correct = {}
+            num_trials = 0
+            for batch in test_dataloader:
+                num_trials += batch['spikes_data'].shape[0]
+                batch = move_batch_to_device(batch, accelerator.device)
+                _ = model(
+                    batch['spikes_data'].clone(),
+                    time_attn_mask=batch['time_attn_mask'],
+                    space_attn_mask=batch['space_attn_mask'],
+                    spikes_timestamps=batch['spikes_timestamps'],
+                    spikes_spacestamps=batch['spikes_spacestamps'],
+                    targets=batch['target'],
+                    neuron_regions=batch['neuron_regions']
+                )
+                
+                for layer_name, output in hook_manager.outputs.items():
+                    if is_best[layer_name]:
+                        decoder = decoders[layer_name]
+                        pred = decoder(output.detach())
+                        loss = loss_fn(pred, batch['target'])
+                        eval_loss[layer_name] = eval_loss.get(layer_name, 0) + loss.item()
+                        
+                        # compute the accuracy
+                        if config.probe.loss == 'cross_entropy':
+                            predicted = torch.max(pred, 1)[1]
+                            target = torch.max(batch['target'], 1)[1]
+                            _correct = (predicted == target).sum().item()
+                            n_correct[layer_name] = n_correct.get(layer_name, 0) + _correct
 
+            for layer_name, loss in eval_loss.items():
+                if is_best[layer_name]:
+                    _acc = n_correct[layer_name]/num_trials
+                    test_acc[layer_name] = _acc
+        
+    for layer_name, acc in test_acc.items():
+        print(f'{layer_name} test acc: {acc}')
+        wandb.log({f'{layer_name} test acc': acc})
 
 
 

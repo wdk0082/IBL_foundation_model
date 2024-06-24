@@ -30,7 +30,7 @@ class ProbeDecoder(nn.Module):
                 'sigmoid': nn.Sigmoid,
                 'gelu': nn.GELU,
             }
-            act_fn = ACTIVATION[config.activation]
+            act_fn = ACTIVATION[config.act]
             decoder_list = [
                 nn.Linear(input_dim, config.hidden_size),
                 act_fn(),
