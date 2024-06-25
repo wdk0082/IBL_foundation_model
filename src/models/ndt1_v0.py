@@ -617,7 +617,7 @@ class NDT1(nn.Module):
         neuron_regions:   Optional[torch.LongTensor] = None,   # (bs, n_channels)
         masking_mode:     Optional[str] = None,
         spike_augmentation: Optional[bool] = False,
-        target_idxs:      Optional[np.bool] = None,   # never used
+        target_idxs:      Optional[bool] = None,   # never used
     ) -> NDT1Output:  
 
         # if neuron_regions type is list 
