@@ -15,7 +15,7 @@ from utils.config_utils import DictConfig, update_config
 from models.model_output import ModelOutput
 from models.masker import Masker
 
-DEFAULT_CONFIG = "src/configs/ndt1_v0/ndt1_v0.yaml"
+DEFAULT_CONFIG = "src/configs/ndt1_v0/ndt1_v0_reg.yaml"
 
 @dataclass
 class NDT1Output(ModelOutput):
@@ -552,6 +552,8 @@ class NDT1(nn.Module):
             n_outputs = kwargs["vocab_size"]
         elif self.method == "sl":
             n_outputs = kwargs["output_size"]
+        elif self.method == "reg":
+            n_outputs = config.encoder.embedder.n_heldout  # only output the heldout neuron activity
         else:
             raise Exception(f"Method {self.method} not implemented yet for NDT1")
 
@@ -581,13 +583,13 @@ class NDT1(nn.Module):
             self.decoder.load_state_dict(torch.load(os.path.join(decoder_pt_path, "decoder.bin")))
 
         # Build loss function
-        if self.method == "ssl":
+        if self.method == "ssl" or self.method == "reg":
             if kwargs["loss"] == "poisson_nll":
                 self.loss_fn = nn.PoissonNLLLoss(reduction="none", log_input=kwargs["use_lograte"])
             elif kwargs["loss"] == "mse":
                 self.loss_fn = nn.MSELoss(reduction="none")
             else:   
-                raise Exception(f"Loss {kwargs['loss']} not implemented yet for ssl")
+                raise Exception(f"Loss {kwargs['loss']} not implemented yet for ssl/reg")
         elif self.method == "ctc":
              self.loss_fn = nn.CTCLoss(reduction="none", blank=kwargs["blank_id"], zero_infinity=kwargs["zero_infinity"])
         elif self.method == "sl":
@@ -597,6 +599,7 @@ class NDT1(nn.Module):
                 self.loss_fn = nn.MSELoss(reduction="none")
             else:
                 raise Exception(f"Loss {kwargs['loss']} not implemented yet for sl")
+            
 
         # Save config
         self.config = config
@@ -617,10 +620,10 @@ class NDT1(nn.Module):
         neuron_regions:   Optional[torch.LongTensor] = None,   # (bs, n_channels)
         masking_mode:     Optional[str] = None,
         spike_augmentation: Optional[bool] = False,
-        target_idxs:      Optional[np.bool] = None,   # never used
+        target_idxs:      Optional[np.bool] = None,   # (n_channels, ) for regression
     ) -> NDT1Output:  
 
-        # if neuron_regions type is list 
+        # If neuron_regions type is list 
         if isinstance(neuron_regions, list):
             neuron_regions = np.asarray(neuron_regions).T
 
@@ -636,21 +639,26 @@ class NDT1(nn.Module):
                         reverse_idx = torch.arange(unmask_temporal[i]-1, -1, -1)
                         spikes[i, :unmask_temporal[i]] = spikes[i, reverse_idx]
 
+        spikes_src = spikes
         if self.method == "ssl":
             targets = spikes.clone()
             if self.encoder.int_spikes:
                 targets = targets.to(torch.int64)
+        if self.method == "reg":
+            targets = spikes[:, :, target_idxs].clone()
+            spikes_src = spikes[:, :, ~target_idxs]  # no need to clone here.
+
 
         # Encode neural data
-        targets_mask = torch.zeros_like(spikes, dtype=torch.int64)
-        x, new_mask = self.encoder(spikes, time_attn_mask, spikes_timestamps, block_idx, date_idx, neuron_regions, masking_mode)
+        targets_mask = torch.zeros_like(spikes_src, dtype=torch.int64)
+        x, new_mask = self.encoder(spikes_src, time_attn_mask, spikes_timestamps, block_idx, date_idx, neuron_regions, masking_mode)
         targets_mask = targets_mask | new_mask
         spikes_lengths = self.encoder.embedder.get_stacked_lens(spikes_lengths)
 
         # Transform neural embeddings into rates/logits
         if self.method == "sl":
             x = x.flatten(start_dim=1)
-            
+
         outputs = self.decoder(x)
 
         # Compute the loss over unmasked outputs
@@ -661,6 +669,9 @@ class NDT1(nn.Module):
             loss = self.loss_fn(outputs.transpose(0,1), targets, spikes_lengths, targets_len)
             n_examples = torch.Tensor([len(targets)]).to(loss.device, torch.long)
         elif self.method == "sl":
+            loss = self.loss_fn(outputs, targets).sum()
+            n_examples = torch.Tensor([len(targets)]).to(loss.device, torch.long)
+        elif self.method == "reg":
             loss = self.loss_fn(outputs, targets).sum()
             n_examples = torch.Tensor([len(targets)]).to(loss.device, torch.long)
 

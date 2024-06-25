@@ -27,6 +27,7 @@ class Trainer():
         self.lr_scheduler = kwargs.get("lr_scheduler", None)
         self.config = kwargs.get("config", None)
         self.num_neurons = kwargs.get("num_neurons", None)
+        self.target_idxs = kwargs.get("target_idxs", None)
         self.active_neurons_idx = None
 
         if self.config.method.model_kwargs.clf:
@@ -68,7 +69,7 @@ class Trainer():
                     print(f"epoch: {epoch} best eval trial avg {self.metric}: {best_eval_trial_avg_metric}")
                     # save model
                     self.save_model(name="best", epoch=epoch)
-                    if self.config.method.model_kwargs.method_name == 'ssl':
+                    if self.config.method.model_kwargs.method_name in ['ssl', 'reg']:
                         gt_pred_fig = self.plot_epoch(
                             gt=eval_epoch_results['eval_gt'],
                             preds=eval_epoch_results['eval_preds'], epoch=epoch,
@@ -93,7 +94,7 @@ class Trainer():
 
             # plot epoch
             if epoch % self.config.training.save_plot_every_n_epochs == 0:
-                if self.config.method.model_kwargs.method_name == 'ssl':
+                if self.config.method.model_kwargs.method_name in ['ssl', 'reg']:
                     gt_pred_fig = self.plot_epoch(
                         gt=eval_epoch_results['eval_gt'], 
                         preds=eval_epoch_results['eval_preds'], 
@@ -120,14 +121,14 @@ class Trainer():
                     "eval_loss": eval_epoch_results['eval_loss'],
                     f"eval_trial_avg_{self.metric}": eval_epoch_results[f'eval_trial_avg_{self.metric}']
                 })
-                
+
         # save last model
         self.save_model(name="last", epoch=epoch)
-        
+
         if self.config.wandb.use:
             wandb.log({"best_eval_loss": best_eval_loss,
                        f"best_eval_trial_avg_{self.metric}": best_eval_trial_avg_metric})
-            
+
     def train_epoch(self, epoch):
         train_loss = 0.
         train_examples = 0
@@ -153,15 +154,16 @@ class Trainer():
     def _forward_model_outputs(self, batch, masking_mode):
         batch = move_batch_to_device(batch, self.accelerator.device)
         return self.model(
-            batch['spikes_data'], 
+            batch['spikes_data'],
             time_attn_mask=batch['time_attn_mask'],
             space_attn_mask=batch['space_attn_mask'],
-            spikes_timestamps=batch['spikes_timestamps'], 
-            spikes_spacestamps=batch['spikes_spacestamps'], 
+            spikes_timestamps=batch['spikes_timestamps'],
+            spikes_spacestamps=batch['spikes_spacestamps'],
             targets=batch['target'],
             neuron_regions=batch['neuron_regions'],
             masking_mode=masking_mode, 
-            spike_augmentation=self.config.data.spike_augmentation
+            spike_augmentation=self.config.data.spike_augmentation,
+            target_idxs=self.target_idxs
         ) 
     
     def eval_epoch(self):
@@ -193,7 +195,7 @@ class Trainer():
         elif self.config.method.model_kwargs.loss == "cross_entropy":
             preds = torch.nn.functional.softmax(preds, dim=1)
 
-        if self.config.method.model_kwargs.method_name == 'ssl':
+        if self.config.method.model_kwargs.method_name in ['ssl', 'reg']:
             # use the most active 50 neurons to select model (r2)
             # neurons in each trial will be different
             _tmp_ac = gt.detach().cpu().numpy().mean(1)  # (bs, n_neurons)
@@ -202,7 +204,7 @@ class Trainer():
 
 
         # TODO: model selection might be not rigorous (right) now
-        if self.config.method.model_kwargs.method_name == 'ssl':
+        if self.config.method.model_kwargs.method_name in ['ssl', 'reg']:
             results = metrics_list(gt=gt[_bs, :, self.active_neurons_idx].transpose(0, 1).transpose(1, 2),
                                    pred=preds[_bs, :, self.active_neurons_idx].transpose(0, 1).transpose(1, 2),
                                    metrics=["r2"], 

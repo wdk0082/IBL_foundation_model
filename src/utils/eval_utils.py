@@ -925,7 +925,7 @@ def behavior_probe_eval(**kwargs):
 
             for layer_name, loss in eval_loss.items():
                 _acc = n_correct[layer_name]/num_trials
-                if _acc > best_val_acc.get(layer_name, -inf):
+                if _acc > best_val_acc.get(layer_name, float('-inf')):
                     best_val_acc[layer_name] = _acc
                     is_best[layer_name] = True
                 else:
