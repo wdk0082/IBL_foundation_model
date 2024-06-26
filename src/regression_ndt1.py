@@ -33,7 +33,8 @@ ap.add_argument("--eval", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
 ap.add_argument("--epochs", type=int, default=1000)
 ap.add_argument("--suffix", type=str, default='common')
-ap.add_argument("--rate_ts", tpye=float, default=0.1)
+ap.add_argument("--rate_ts", type=float, default=0.1)
+ap.add_argument("--seed", type=int, default=42)
 args = ap.parse_args()
 eid = args.eid
 
@@ -60,11 +61,11 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="({}){}_model_{}_method_{}_mask_{}_ratio_{}_{}".format(
+        name="({}){}_model_{}_method_{}_mask_{}_ratio_{}_seed_{}_{}".format(
             prefix,
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio, args.suffix,
+            args.mask_mode, args.mask_ratio, args.seed, args.suffix,
         )
     )
 
@@ -84,6 +85,7 @@ log_dir = os.path.join(
     "method_{}".format(config.method.model_kwargs.method_name), 
     "mask_{}".format(args.mask_mode),
     "ratio_{}".format(args.mask_ratio),
+    "seed_{}".format(args.seed),
     args.suffix,
 )
 if not os.path.exists(log_dir):
@@ -99,7 +101,7 @@ if args.train:
     print("=================================")   
     
     # set seed for reproducibility
-    set_seed(config.seed)
+    set_seed(args.seed)
 
     dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
     train_dataset = dataset["train"]
@@ -144,6 +146,7 @@ if args.train:
     target_idxs = np.zeros(num_neurons, dtype=bool)
     target_idxs[sel_idxs] = True
     print(f'Selected index: {sel_idxs}')
+    np.save(os.path.join(log_dir, 'target_neurons.npy'), target_idxs)
 
     config['model']['encoder']['embedder']['n_channels'] = num_neurons - num_selected
     config['model']['encoder']['embedder']['n_heldout'] = num_selected
@@ -238,14 +241,64 @@ if args.train:
     trainer_.train()    
 
 
+# ------------------------------------------------------------------------------------
+# Evaluation
+# ------------------------------------------------------------------------------------
+if args.eval:
+    
+    print("=================================")
+    print("           Evaluation            ")
+    print("=================================")
 
+    
+    # Fix Args
+    n_time_steps = 100
 
+    # Configuration
+    configs = {
+        'model_config': 'src/configs/ndt1_v0/ndt1_v0_reg.yaml',
+        'model_path': os.path.join(log_dir, best_ckpt_path),
+        'trainer_config': 'src/configs/ndt1_v0/trainer_ndt1_v0_reg.yaml',
+        'seed': args.seed,
+        'mask_mode': args.mask_mode,
+        'eid': eid
+    }    
 
+    model, accelerator, dataset, dataloader = load_model_data_local(**configs)
 
+    # base path for evaluation
+    eval_base_path = os.path.join(
+        args.base_path, 
+        eid, 
+        "eval", 
+        "model_{}".format(config.model.model_class),
+        "_method_{}_mask_{}_ratio_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.suffix),
+    )
+    if not os.path.exists(eval_base_path):
+        os.makedirs(eval_base_path)
 
+    print(f'The evaluation results will be saved in: {eval_base_path}')
 
-
-
-
+    # only do co-smoothing in regression
+    target_idxs = np.load(os.path.join(log_dir, 'target_neurons.npy'), allow_pickle=True)
+    co_smoothing_configs = {
+            'subtract': 'task',
+            'onset_alignment': [40],
+            'method_name': 'mask_{}'.format(args.mask_mode), 
+            'save_path': os.path.join(eval_base_path, 'co-smoothing'),
+            'mode': 'regression',
+            'n_time_steps': n_time_steps,    
+            'is_aligned': True,
+            'target_regions': None,
+            'target_idxs': target_idxs,
+        }
+    
+    results = co_smoothing_eval(model, 
+                        accelerator, 
+                        dataloader, 
+                        dataset, 
+                        **co_smoothing_configs)
+    print(results)
+    wandb.log(results)
 
 

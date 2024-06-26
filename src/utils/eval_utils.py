@@ -6,7 +6,7 @@ from src.utils.utils import set_seed, move_batch_to_device, plot_gt_pred, metric
     plot_rate_and_spike
 from src.utils.config_utils import config_from_kwargs, update_config
 from src.utils.hooks_utils import HookManager
-from src.models.ndt1_v0 import NDT1
+from src.models.ndt1_v0 import NDT1  # only here is not compatitable. Need to change this for non-regression.
 from src.models.stpatch import STPatch
 from src.models.itransformer_multi import iTransformer  # use multi-version for now
 from src.models.probe_decoders import ProbeDecoder
@@ -53,7 +53,7 @@ def load_model_data_local(**kwargs):
     config = update_config(trainer_config, config)
     
     # load the dataset
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')['test']
+    dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')['test']
 
     if config.model.model_class == 'iTransformer':
         num_neurons = len(dataset[0]['cluster_uuids'])
@@ -364,7 +364,154 @@ def co_smoothing_eval(
                     )
                     r2_result_list[idxs[i]] = r2
 
-    # TODO: only Co-Smooth is updated now. Update others if needed. 1. padding value problem.
+    elif mode == 'regression':  # only for ndt1 !!!
+
+        target_idxs = kwargs['target_idxs']
+
+        bps_result_list, r2_result_list = [float('nan')] * tot_num_neurons, [np.array([np.nan, np.nan])] * N
+    
+        model.eval()
+        gt_list = []
+        pred_list = []
+        with torch.no_grad():
+            for batch in test_dataloader:
+                batch = move_batch_to_device(batch, accelerator.device)
+                gt_list.append(batch['spikes_data'][:, :, target_idxs].clone())
+                mask_result = heldout_mask(
+                    batch['spikes_data'].clone(),
+                    mode='manual',
+                    heldout_idxs=target_idxs,  # mask all the heldout neurons, make this safer. (no leakage)
+                )
+                outputs = model(
+                    mask_result['spikes'],
+                    time_attn_mask=batch['time_attn_mask'],
+                    space_attn_mask=batch['space_attn_mask'],
+                    spikes_timestamps=batch['spikes_timestamps'],
+                    spikes_spacestamps=batch['spikes_spacestamps'],
+                    targets=batch['target'],
+                    neuron_regions=batch['neuron_regions'],
+                    target_idxs=target_idxs,  # need this in regression mode
+                )
+                pred_list.append(outputs.preds)
+
+        gt_spike_data = torch.cat(gt_list, 0)
+        pred = torch.cat(pred_list, 0)
+
+        # TODO: fix this for not-poisson condition.
+        pred = torch.exp(pred)
+
+        gt_spikes = gt_spike_data.detach().cpu().numpy()
+        pred_spikes = pred.detach().cpu().numpy()
+
+        idxs = np.arange(0, tot_num_neurons)[target_idxs] # idx2idx
+
+        for n_i in tqdm(range(gt_spikes.shape[2])):
+            
+            # compute co-bps
+            gt_held_out = gt_spikes[:, :, [n_i]]
+            pred_held_out = pred_spikes[:, :, [n_i]]
+
+            bps = bits_per_spike(pred_held_out, gt_held_out)
+            if np.isinf(bps):
+                bps = np.nan
+            bps_result_list[idxs[n_i]] = bps
+
+            # compute R2
+            ys = gt_spikes  # [#trials, #timesteps, #neurons]
+            y_preds = pred_spikes  # [#trials, #timesteps, #neurons]
+
+            if is_aligned:
+                X = behavior_set  # [#trials, #timesteps, #variables]
+                _r2_psth, _r2_trial = viz_single_cell(X, ys[:, :, n_i], y_preds[:, :, n_i],
+                                                        var_name2idx, var_tasklist, var_value2label, var_behlist,
+                                                        subtract_psth=kwargs['subtract'],
+                                                        aligned_tbins=kwargs['onset_alignment'],
+                                                        neuron_idx=uuids_list[idxs[n_i]][:4],
+                                                        neuron_region=region_list[idxs[n_i]],
+                                                        method=method_name, save_path=kwargs['save_path'])
+                r2_result_list[idxs[n_i]] = np.array([_r2_psth, _r2_trial])
+            else:
+                r2 = viz_single_cell_unaligned(
+                    ys[:, :, n_i], y_preds[:, :, n_i],
+                    neuron_idx=uuids_list[idxs[n_i]][:4],
+                    neuron_region=region_list[idxs[n_i]],
+                    method=method_name, save_path=kwargs['save_path']
+                )
+                r2_result_list[idxs[n_i]] = r2        
+
+    elif mode == 'manual':
+        targetz_idxs = kwargs['target_idxs']
+        bps_result_list, r2_result_list = [float('nan')] * tot_num_neurons, [np.array([np.nan, np.nan])] * N
+    
+        model.eval()
+        gt_list = []
+        pred_list = []
+        with torch.no_grad():
+            for batch in test_dataloader:
+                batch = move_batch_to_device(batch, accelerator.device)
+                gt_list.append(batch['spikes_data'][:, :, target_idxs].clone())
+                mask_result = heldout_mask(
+                    batch['spikes_data'].clone(),
+                    mode='manual',
+                    heldout_idxs=target_idxs,  # mask all the heldout neurons
+                )
+                outputs = model(
+                    mask_result['spikes'],
+                    time_attn_mask=batch['time_attn_mask'],
+                    space_attn_mask=batch['space_attn_mask'],
+                    spikes_timestamps=batch['spikes_timestamps'],
+                    spikes_spacestamps=batch['spikes_spacestamps'],
+                    targets=batch['target'],
+                    neuron_regions=batch['neuron_regions'],
+                )
+                pred_list.append(outputs.preds)
+
+        gt_spike_data = torch.cat(gt_list, 0)
+        pred = torch.cat(pred_list, 0)
+
+        # TODO: fix this for not-poisson condition.
+        pred = torch.exp(pred)
+
+        gt_spikes = gt_spike_data.detach().cpu().numpy()
+        pred_spikes = pred.detach().cpu().numpy()
+
+        idxs = np.arange(0, tot_num_neurons)[target_idxs] # idx2idx        
+
+        for n_i in tqdm(range(idxs.shape[0])):
+            
+            # compute co-bps
+            gt_held_out = gt_spikes[:, :, [idxs[n_i]]]
+            pred_held_out = pred_spikes[:, :, [idxs[n_i]]]
+
+            bps = bits_per_spike(pred_held_out, gt_held_out)
+            if np.isinf(bps):
+                bps = np.nan
+            bps_result_list[idxs[n_i]] = bps
+
+            # compute R2
+            ys = gt_spikes  # [#trials, #timesteps, #neurons]
+            y_preds = pred_spikes  # [#trials, #timesteps, #neurons]
+
+            if is_aligned:
+                X = behavior_set  # [#trials, #timesteps, #variables]
+                _r2_psth, _r2_trial = viz_single_cell(X, ys[:, :, idxs[n_i]], y_preds[:, :, idxs[n_i]],
+                                                        var_name2idx, var_tasklist, var_value2label, var_behlist,
+                                                        subtract_psth=kwargs['subtract'],
+                                                        aligned_tbins=kwargs['onset_alignment'],
+                                                        neuron_idx=uuids_list[idxs[n_i]][:4],
+                                                        neuron_region=region_list[idxs[n_i]],
+                                                        method=method_name, save_path=kwargs['save_path'])
+                r2_result_list[idxs[n_i]] = np.array([_r2_psth, _r2_trial])
+            else:
+                r2 = viz_single_cell_unaligned(
+                    ys[:, :, idxs[n_i]], y_preds[:, :, idxs[n_i]],
+                    neuron_idx=uuids_list[idxs[n_i]][:4],
+                    neuron_region=region_list[idxs[n_i]],
+                    method=method_name, save_path=kwargs['save_path']
+                )
+                r2_result_list[idxs[n_i]] = r2       
+    
+
     elif mode == 'forward_pred':
 
         held_out_list = kwargs['held_out_list']
@@ -697,7 +844,7 @@ def behavior_probe_eval(**kwargs):
     config = update_config(probe_config, config)
 
     # load the dataset
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+    dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
     train_dataset = dataset['train']
     test_dataset = dataset['test']
     val_dataset = dataset['val']
@@ -851,6 +998,7 @@ def behavior_probe_eval(**kwargs):
     
     best_val_acc = {}
     is_best = {}
+    epoch_best = {}
     test_acc = {}  # use the best model to test (selected by best val)
     for epoch in range(config.probe.training.epochs):
         for decoder in decoders.values():
@@ -928,6 +1076,7 @@ def behavior_probe_eval(**kwargs):
                 if _acc > best_val_acc.get(layer_name, float('-inf')):
                     best_val_acc[layer_name] = _acc
                     is_best[layer_name] = True
+                    epoch_best[layer_name] = epoch
                 else:
                     is_best[layer_name] = False
                 print(f'epoch: {epoch}, layer: {layer_name}, val loss: {loss/num_trials}, acc: {_acc}')
@@ -972,7 +1121,7 @@ def behavior_probe_eval(**kwargs):
                     test_acc[layer_name] = _acc
         
     for layer_name, acc in test_acc.items():
-        print(f'{layer_name} test acc: {acc}')
+        print(f'{layer_name}, best epoch: {epoch_best[layer_name]}, test acc: {acc}')
         wandb.log({f'{layer_name} test acc': acc})
 
 

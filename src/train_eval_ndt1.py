@@ -110,14 +110,14 @@ if args.train:
     
     # download dataset from huggingface
     if args.unaligned_training:
-        _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-        _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        _al = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        _ual = load_dataset(f'ibl-foundation-model/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         dataset = split_unaligned_dataset(_al, _ual)
         train_dataset = dataset["train"]
         val_dataset = dataset["val"]
         test_dataset = dataset["test"]
     else:
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         train_dataset = dataset["train"]
         val_dataset = dataset["val"]
         test_dataset = dataset["test"]
@@ -235,6 +235,7 @@ if args.eval:
     forward_pred = False
     inter_region = False
     intra_region = False
+    co_smooth_manual = True  # Compare with regression baseline
     
     # Fix Args
     n_time_steps = 100
@@ -251,6 +252,7 @@ if args.eval:
     }
     
     model, accelerator, dataset, dataloader = load_model_data_local(**configs)
+    num_neurons = len(dataset[0]['cluster_uuids'])
     
     # base path for evaluation
     eval_base_path = os.path.join(
@@ -287,7 +289,30 @@ if args.eval:
         print(results)
         wandb.log(results)
         
-    
+    if co_smooth_manual:
+        _idxs = np.array([49, 222,  50, 177, 254, 113,  81,  62, 130,  60,  38, 234])
+        target_idxs = np.zeros(num_neurons, dtype=bool)
+        target_idxs[_idxs] = True
+        print('Start co-smoothing-manual:')
+        co_smoothing_configs = {
+            'subtract': 'task',
+            'onset_alignment': [40],
+            'method_name': 'mask_{}'.format(args.mask_mode),
+            'save_path': os.path.join(eval_base_path, 'co-smoothing'),
+            'mode': 'manual',
+            'n_time_steps': n_time_steps,
+            'is_aligned': True,
+            'target_regions': None,
+            'target_idxs': target_idxs,  # the same as regression
+        }
+
+        results = co_smoothing_eval(model, 
+                        accelerator, 
+                        dataloader, 
+                        dataset, 
+                        **co_smoothing_configs)
+        print(results)
+        wandb.log(results)
     
     # forward prediction
     if forward_pred:
