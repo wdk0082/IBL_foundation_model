@@ -110,14 +110,14 @@ if args.train:
     
     # download dataset from huggingface
     if args.unaligned_training:
-        _al = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-        _ual = load_dataset(f'ibl-foundation-model/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         dataset = split_unaligned_dataset(_al, _ual)
         train_dataset = dataset["train"]
         val_dataset = dataset["val"]
         test_dataset = dataset["test"]
     else:
-        dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         train_dataset = dataset["train"]
         val_dataset = dataset["val"]
         test_dataset = dataset["test"]
@@ -231,11 +231,11 @@ if args.eval:
     
     
     # Tasks Selection
-    co_smooth = False
+    co_smooth = True
     forward_pred = False
     inter_region = False
     intra_region = False
-    co_smooth_manual = True  # Compare with regression baseline
+    co_smooth_manual = False  # Compare with regression baseline
     
     # Fix Args
     n_time_steps = 100

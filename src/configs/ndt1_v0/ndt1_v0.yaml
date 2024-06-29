@@ -68,7 +68,7 @@ encoder:
     n_layers: 5           # number of transformer layers
     hidden_size: 1024     # hidden space of the transformer
     use_scalenorm: false  # use scalenorm  instead of layernorm
-    use_rope: false       # use rotary postional encoding
+    use_rope: true       # use rotary postional encoding
     rope_theta: 10000.0   # rope angle of rotation
 
 

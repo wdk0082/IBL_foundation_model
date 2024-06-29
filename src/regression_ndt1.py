@@ -103,7 +103,7 @@ if args.train:
     # set seed for reproducibility
     set_seed(args.seed)
 
-    dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
     train_dataset = dataset["train"]
     val_dataset = dataset["val"]
     test_dataset = dataset["test"]

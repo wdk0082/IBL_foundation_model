@@ -1,7 +1,7 @@
 probe:
 
   decoder:
-    type: mlp  # linear / mlp
+    type: linear  # linear / mlp
     hidden_size: 1024   # for the mlp decoder
     n_layers: 1         # for the mlp decoder  Not implemented yet
     act: relu           # for the mlp decoder  Not implemented yet
@@ -17,7 +17,7 @@ probe:
 
     optimizer:
       gradient_accumulation_steps: 1
-      lr: 1.e-4
+      lr: 1.e-5
       wd: 10
       eps: 1.e-8
       warmup_pct: 0.15 # cosine/linear

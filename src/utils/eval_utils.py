@@ -21,6 +21,7 @@ import numpy as np
 from sklearn.cluster import SpectralClustering
 import matplotlib.colors as colors
 import os
+import re
 from src.trainer.make import make_trainer
 from pathlib import Path
 import wandb
@@ -53,7 +54,7 @@ def load_model_data_local(**kwargs):
     config = update_config(trainer_config, config)
     
     # load the dataset
-    dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')['test']
+    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')['test']
 
     if config.model.model_class == 'iTransformer':
         num_neurons = len(dataset[0]['cluster_uuids'])
@@ -440,7 +441,7 @@ def co_smoothing_eval(
                 r2_result_list[idxs[n_i]] = r2        
 
     elif mode == 'manual':
-        targetz_idxs = kwargs['target_idxs']
+        target_idxs = kwargs['target_idxs']
         bps_result_list, r2_result_list = [float('nan')] * tot_num_neurons, [np.array([np.nan, np.nan])] * N
     
         model.eval()
@@ -449,7 +450,7 @@ def co_smoothing_eval(
         with torch.no_grad():
             for batch in test_dataloader:
                 batch = move_batch_to_device(batch, accelerator.device)
-                gt_list.append(batch['spikes_data'][:, :, target_idxs].clone())
+                gt_list.append(batch['spikes_data'].clone())
                 mask_result = heldout_mask(
                     batch['spikes_data'].clone(),
                     mode='manual',
@@ -844,7 +845,7 @@ def behavior_probe_eval(**kwargs):
     config = update_config(probe_config, config)
 
     # load the dataset
-    dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
     train_dataset = dataset['train']
     test_dataset = dataset['test']
     val_dataset = dataset['val']
@@ -1222,6 +1223,11 @@ def heldout_mask(
     return {"spikes": spike_data_masked, "heldout_idxs": hd}
 
 
+# make file names valid
+def sanitize_filename(filename: str, replacement: str = '_') -> str:
+    return re.sub(r'[\/:*?"<>|]', replacement, filename)
+
+
 # --------------------------------------------------------------------------------------------------
 # copied from NLB repo
 # standard evaluation metrics
@@ -1546,7 +1552,7 @@ def viz_single_cell(X, y, y_pred, var_name2idx, var_tasklist, var_value2label, v
 
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    plt.savefig(os.path.join(save_path, f'{neuron_region}_{neuron_idx}_{r2_trial:.2f}_{method}.png'))
+    plt.savefig(os.path.join(save_path, sanitize_filename(f'{neuron_region}_{neuron_idx}_{r2_trial:.2f}_{method}.png')))
     plt.tight_layout();
     # plt.show()
 
