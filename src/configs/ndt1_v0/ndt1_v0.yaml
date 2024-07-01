@@ -66,9 +66,9 @@ encoder:
   # Transformer
   transformer:
     n_layers: 5           # number of transformer layers
-    hidden_size: 1024     # hidden space of the transformer
+    hidden_size: 512     # hidden space of the transformer
     use_scalenorm: false  # use scalenorm  instead of layernorm
-    use_rope: true       # use rotary postional encoding
+    use_rope: false       # use rotary postional encoding
     rope_theta: 10000.0   # rope angle of rotation
 
 
@@ -84,8 +84,8 @@ encoder:
 
   # Projection to factor space
   factors:  
-    active: false  # project from hidden_size to factors
-    size: 8                  # factors size  
+    active: true  # project from hidden_size to factors
+    size: 64                  # factors size  
     act: relu                 # activation function after projecting to factors
     bias: true                # use bias in projection to factors
     dropout: 0.0              # dropout in projection to factors
