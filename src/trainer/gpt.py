@@ -6,7 +6,7 @@ from src.utils.utils import move_batch_to_device, metrics_list, plot_gt_pred, pl
 from tqdm import tqdm
 import random
 
-class Trainer():
+class GPTTrainer():
     def __init__(
             self,
             model,
@@ -27,7 +27,6 @@ class Trainer():
         self.lr_scheduler = kwargs.get("lr_scheduler", None)
         self.config = kwargs.get("config", None)
         self.num_neurons = kwargs.get("num_neurons", None)
-        self.target_idxs = kwargs.get("target_idxs", None)
         self.active_neurons_idx = None
 
         if self.config.method.model_kwargs.clf:
@@ -35,22 +34,6 @@ class Trainer():
         else:
             self.metric = 'r2'
 
-
-        if self.config.model.model_class == 'iTransformer':
-            self.masking_ratio = model.masker.ratio
-            self.masking_mode = model.masker.mode
-        else:
-            self.masking_ratio = model.encoder.masker.ratio
-            self.masking_mode = model.encoder.masker.mode
-
-        self.masking_schemes = ['neuron', 'temporal', 'causal']
-        if self.masking_mode == "all":
-            self.masking_schemes += ['intra-region', 'inter-region']
-        if self.config.model.model_class == 'STPatch':
-            self.masking_schemes += ['random_token']
-
-        if self.masking_mode in ["combined", "all"]:
-            print("(train) switch between masking modes: ", self.masking_schemes)
 
     def train(self):
         best_eval_loss = torch.tensor(float('inf'))
@@ -134,18 +117,7 @@ class Trainer():
         train_examples = 0
         self.model.train()
         for batch in tqdm(self.train_dataloader):
-            # TODO: different ratio for different schemes, in iTransformer
-            if self.masking_mode in ["combined", "all"]:
-                masking_mode = random.sample(self.masking_schemes, 1)[0]
-                if masking_mode == 'temporal':
-                    self.model.encoder.masker.ratio = 0.3
-                elif masking_mode == 'causal':
-                    self.model.encoder.masker.ratio = 0.6
-                else:
-                    self.model.encoder.masker.ratio = self.masking_ratio
-            else:
-                masking_mode = self.masking_mode
-            outputs = self._forward_model_outputs(batch, masking_mode)
+            outputs = self._forward_model_outputs(batch)
             loss = outputs.loss
             loss.backward()
             self.optimizer.step()
@@ -157,20 +129,14 @@ class Trainer():
             "train_loss": train_loss/train_examples
         }
     
-    def _forward_model_outputs(self, batch, masking_mode):
+    def _forward_model_outputs(self, batch):
         batch = move_batch_to_device(batch, self.accelerator.device)
         return self.model(
             batch['spikes_data'],
             time_attn_mask=batch['time_attn_mask'],
-            space_attn_mask=batch['space_attn_mask'],
             spikes_timestamps=batch['spikes_timestamps'],
-            spikes_spacestamps=batch['spikes_spacestamps'],
             targets=batch['target'],  # for supervised learning
-            neuron_regions=batch['neuron_regions'],
-            masking_mode=masking_mode, 
-            spike_augmentation=self.config.data.spike_augmentation,
-            target_idxs=self.target_idxs
-        ) 
+        )
     
     def eval_epoch(self):
         self.model.eval()
@@ -180,24 +146,11 @@ class Trainer():
             gt, preds = [], []
             with torch.no_grad():  
                 for batch in self.eval_dataloader:
-                    if self.masking_mode in ["combined", "all"]:
-                        masking_mode = random.sample(self.masking_schemes, 1)[0]
-                        if masking_mode == 'temporal':
-                            self.model.encoder.masker.ratio = 0.3
-                        elif masking_mode == 'causal':
-                            self.model.encoder.masker.ratio = 0.6
-                        else:
-                            self.model.encoder.masker.ratio = self.masking_ratio
-                    else:
-                        masking_mode = self.masking_mode
-                    outputs = self._forward_model_outputs(batch, masking_mode)
+                    outputs = self._forward_model_outputs(batch)
                     loss = outputs.loss
                     eval_loss += loss.item()
                     eval_examples += outputs.n_examples
-                    if self.config.data.patching:
-                        gt.append(outputs.targets.clone())
-                    else:
-                        gt.append(outputs.targets.clone())
+                    gt.append(outputs.targets.clone())
                     preds.append(outputs.preds.clone())
             gt = torch.cat(gt, dim=0)
             preds = torch.cat(preds, dim=0)
@@ -223,9 +176,6 @@ class Trainer():
                                    device=self.accelerator.device)
         elif self.config.method.model_kwargs.method_name in ['sl', 'stat_behaviour', 'dyn_behaviour']:
             if self.config.method.model_kwargs.clf:
-                # debug
-                print('############ eval ###############')
-                print(f'gt: {gt}\n preds: {preds}')
                 results = metrics_list(gt=gt.argmax(1),  # TODO: change this (probably)
                                        pred=preds.argmax(1),
                                        metrics=[self.metric], 
