@@ -227,6 +227,7 @@ if args.eval:
     ar_generation = True
 
     init_bins = 50
+    total_time_steps = 100
 
     # Configuration
     configs = {
@@ -257,8 +258,9 @@ if args.eval:
         ar_generation_configs = {
             'subtract': 'task',
             'onset_alignment': [40],
-            'save_path': os.path.join(eval_base_path), 'ar_generation'),
+            'save_path': os.path.join(eval_base_path, 'ar_generation'),
             'method_name': 'NDT-GPT',
+            'n_time_steps': total_time_steps,
         }
 
         results = ar_spike_generation(

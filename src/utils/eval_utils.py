@@ -234,7 +234,7 @@ def attention_weights_eval(
 
 def ar_spike_generation(
     model,
-    accelerator，
+    accelerator,
     test_dataloader,
     test_dataset,
     init_bins=50,  # number of time bins to start with
@@ -245,8 +245,8 @@ def ar_spike_generation(
         break
 
     tot_num_neurons = batch['spikes_data'].size()[-1]
-    uuids_list = np.array(batch['neuron_uuids'][0])[:tot_num_neurons]
-    region_list = np.array(batch['neuron_regions'][0])[:tot_num_neurons]
+    uuids_list = np.array(batch['neuron_uuids'])[:tot_num_neurons, 0]
+    region_list = np.array(batch['neuron_regions'])[:tot_num_neurons, 0]
     tot_bins = batch['spikes_data'].shape[1]
     assert 0<=init_bins<=tot_bins, f"Invalid init_bins. Total number of bins (including paddings): {tot_bins}, init_bins: {init_bins}."
     
@@ -265,10 +265,10 @@ def ar_spike_generation(
                 output = model(
                     processed_spikes,
                     time_attn_mask=processed_attn_mask,
-                    spikes_timestamps=processed_timestamps
+                    spikes_timestamps=processed_timestamps,
                 )
                 _preds = torch.exp(output.preds)
-                current_spikes = torch.concatenate([current_spikes, _preds[:, -1, :]], dim=1)
+                current_spikes = torch.concatenate([current_spikes, _preds[:, [-1], :]], dim=1)
             pred_list.append(current_spikes[:, init_bins:, :])
             gt_list.append(batch['spikes_data'][:, init_bins:, :])
 
@@ -279,7 +279,8 @@ def ar_spike_generation(
     pred_spikes = pred.detach().cpu().numpy()
     tot_num_trials = gt_spikes.shape[0]
     print(f'Gound truth shape: {gt_spikes.shape}, prediction shape: {pred_spikes.shape}')
-            
+
+    T = kwargs['n_time_steps']
     # prepare the condition matrix
     b_list = []
 
@@ -382,8 +383,8 @@ def co_smoothing_eval(
     target_regions = kwargs['target_regions']
 
     tot_num_neurons = batch['spikes_data'].size()[-1]
-    uuids_list = np.array(batch['neuron_uuids'][0])[:tot_num_neurons]
-    region_list = np.array(batch['neuron_regions'][0])[:tot_num_neurons]
+    uuids_list = np.array(batch['neuron_uuids'])[:tot_num_neurons, 0]
+    region_list = np.array(batch['neuron_regions'])[:tot_num_neurons, 0]
 
     T = kwargs['n_time_steps']
     N = uuids_list.shape[0]

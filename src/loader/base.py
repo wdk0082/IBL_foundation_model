@@ -274,7 +274,6 @@ class BaseDataset(torch.utils.data.Dataset):
         time_attn_mask = _attention_mask(self.max_time_length, pad_time_length).astype(np.int64)
         space_attn_mask = _attention_mask(self.max_space_length, pad_space_length).astype(np.int64)
         binned_spikes_data = binned_spikes_data.astype(np.float32)
-
         
         return {
             "spikes_data": binned_spikes_data,
