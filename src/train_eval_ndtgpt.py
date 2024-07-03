@@ -31,6 +31,7 @@ ap.add_argument("--eval", action='store_true')
 ap.add_argument("--probe", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
 ap.add_argument("--unaligned_training", action='store_true')
+ap.add_argument("--init_bins", type=int, default=50)
 ap.add_argument("--epochs", type=int, default=1000)
 ap.add_argument("--suffix", type=str, default='common')
 args = ap.parse_args()
@@ -226,8 +227,9 @@ if args.eval:
 
     ar_generation = True
 
-    init_bins = 50
+    init_bins = args.init_bins
     total_time_steps = 100
+    wandb.log(init_bins)
 
     # Configuration
     configs = {
@@ -258,7 +260,7 @@ if args.eval:
         ar_generation_configs = {
             'subtract': 'task',
             'onset_alignment': [40],
-            'save_path': os.path.join(eval_base_path, 'ar_generation'),
+            'save_path': os.path.join(eval_base_path, f'ar_generation_init_{init_bins}bins'),
             'method_name': 'NDT-GPT',
             'n_time_steps': total_time_steps,
         }

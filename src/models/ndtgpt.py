@@ -586,7 +586,7 @@ class NDTGPT(nn.Module):
             source = spikes[:, :-1, :].clone()
             targets = spikes[:, 1:, :].clone()
             new_time_attn_mask = time_attn_mask[:, 1:].clone()
-            new_timestamps = spikes_timestamps[:, 1:].clone()
+            new_timestamps = spikes_timestamps[:, :-1].clone()  
             if self.encoder.int_spikes:
                 targets = targets.to(torch.int64)  # Why?
         elif self.method in ['sl', 'ctc']:

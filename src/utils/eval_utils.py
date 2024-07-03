@@ -174,8 +174,8 @@ def attention_weights_eval(
         break
 
     tot_num_neurons = batch['spikes_data'].size()[-1]
-    uuids_list = np.array(test_dataset['cluster_uuids'][0])[:tot_num_neurons]
-    region_list = np.array(test_dataset['cluster_regions'])[0][:tot_num_neurons]
+    uuids_list = np.array(batch['neuron_uuids'])[:tot_num_neurons, 0]
+    region_list = np.array(batch['neuron_regions'])[:tot_num_neurons, 0]
 
     N = uuids_list.shape[0]
 
