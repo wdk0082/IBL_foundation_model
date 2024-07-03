@@ -233,6 +233,7 @@ class BaseDataset(torch.utils.data.Dataset):
             binned_spikes_data = binned_spikes_data[:, sorted_neuron_idxs]
             neuron_depths = neuron_depths[sorted_neuron_idxs]
             neuron_regions = neuron_regions[sorted_neuron_idxs]
+            neuron_uuids = neuron_uuids[sorted_neuron_idxs]
 
         neuron_regions = list(neuron_regions)
 
@@ -284,6 +285,7 @@ class BaseDataset(torch.utils.data.Dataset):
             "target": target_behavior,
             "neuron_depths": neuron_depths,
             "neuron_regions": list(neuron_regions),
+            "neuron_uuids": list(neuron_uuids),
         }
 
     def __len__(self):

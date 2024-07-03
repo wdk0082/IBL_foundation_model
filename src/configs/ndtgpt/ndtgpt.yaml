@@ -3,7 +3,7 @@ model_class: NDT-GPT
 encoder:
 
   from_pt: null
-
+    
   # Normalize and add noise
   norm_and_noise:
     active: false

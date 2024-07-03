@@ -581,19 +581,21 @@ class NDTGPT(nn.Module):
             date_idx: Optional[torch.LongTensor] = None,  # (bs)
     ) -> NDTGPTOutput:
 
-        if self.method == "ssl":
-            assert targets is None, "Don't provide targets for ssl. It will be automatically generated."
+        if self.method == "ssl" :
+            assert targets is None, "Don't provide targets for ssl training. Targets will be automatically generated."
             source = spikes[:, :-1, :].clone()
             targets = spikes[:, 1:, :].clone()
             new_time_attn_mask = time_attn_mask[:, 1:].clone()
             new_timestamps = spikes_timestamps[:, 1:].clone()
             if self.encoder.int_spikes:
                 targets = targets.to(torch.int64)  # Why?
-        else:
+        elif self.method in ['sl', 'ctc']:
             assert targets is not None, "Where are my targets for ctc and sl?"
             source = spikes.clone()
             new_time_attn_mask = time_attn_mask.clone()
             new_timestamps = spikes_timestamps.clone()
+        else:
+            raise NotImplementedError(f'{self.method} not implemented')
 
         # Encode neural data
         x = self.encoder(source, new_time_attn_mask, new_timestamps, block_idx, date_idx)

@@ -135,7 +135,7 @@ class GPTTrainer():
             batch['spikes_data'],
             time_attn_mask=batch['time_attn_mask'],
             spikes_timestamps=batch['spikes_timestamps'],
-            targets=batch['target'],  # for supervised learning
+            targets=batch['target'] if self.config.method.model_kwargs.method_name in ['sl', 'ctc'] else None,   # for supervised learning
         )
     
     def eval_epoch(self):

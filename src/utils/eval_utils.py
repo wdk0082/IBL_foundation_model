@@ -7,6 +7,7 @@ from src.utils.utils import set_seed, move_batch_to_device, plot_gt_pred, metric
 from src.utils.config_utils import config_from_kwargs, update_config
 from src.utils.hooks_utils import HookManager
 from src.models.ndt1_v0 import NDT1  # only here is not compatitable. Need to change this for non-regression.
+from models.ndtgpt import NDTGPT
 from src.models.stpatch import STPatch
 from src.models.itransformer_multi import iTransformer  # use multi-version for now
 from src.models.probe_decoders import ProbeDecoder
@@ -26,7 +27,7 @@ from src.trainer.make import make_trainer
 from pathlib import Path
 import wandb
 
-NAME2MODEL = {"NDT1": NDT1, "STPatch": STPatch, "iTransformer": iTransformer}
+NAME2MODEL = {"NDT1": NDT1, "STPatch": STPatch, "iTransformer": iTransformer, "NDT-GPT": NDTGPT}
 
 import logging
 
@@ -42,7 +43,7 @@ def load_model_data_local(**kwargs):
     trainer_config = kwargs['trainer_config']
     model_path = kwargs['model_path']
     seed = kwargs['seed']
-    mask_mode = kwargs['mask_mode']
+    mask_mode = kwargs.get('mask_mode', None)
     eid = kwargs['eid']
 
     # set seed
@@ -98,7 +99,9 @@ def load_model_data_local(**kwargs):
     model_class = NAME2MODEL[config.model.model_class]
     model = model_class(config.model, **config.method.model_kwargs)
 
-    if config.model.model_class == 'iTransformer':
+    if model.config.model_class == 'NDT-GPT':
+        pass
+    elif model.config.model_class == 'iTransformer':
         model.masker.force_active = False
     else:
         model.encoder.masker.force_active = False
@@ -229,6 +232,137 @@ def attention_weights_eval(
     return attn_weights, batch
 
 
+def ar_spike_generation(
+    model,
+    accelerator，
+    test_dataloader,
+    test_dataset,
+    init_bins=50,  # number of time bins to start with
+    **kwargs
+):
+    
+    for batch in test_dataloader:
+        break
+
+    tot_num_neurons = batch['spikes_data'].size()[-1]
+    uuids_list = np.array(batch['neuron_uuids'][0])[:tot_num_neurons]
+    region_list = np.array(batch['neuron_regions'][0])[:tot_num_neurons]
+    tot_bins = batch['spikes_data'].shape[1]
+    assert 0<=init_bins<=tot_bins, f"Invalid init_bins. Total number of bins (including paddings): {tot_bins}, init_bins: {init_bins}."
+    
+    model.eval()
+    with torch.no_grad():
+        gt_list = []
+        pred_list = []
+        for batch in tqdm(test_dataloader):
+            batch = move_batch_to_device(batch, accelerator.device)
+            
+            current_spikes = batch['spikes_data'][:, :init_bins, :].clone()
+            for j in range(init_bins, tot_bins):
+                processed_spikes = torch.concatenate([current_spikes, torch.zeros_like(current_spikes[:, :1, :])], dim=1)
+                processed_attn_mask = batch['time_attn_mask'][:, :j+1]
+                processed_timestamps = batch['spikes_timestamps'][:, :j+1]
+                output = model(
+                    processed_spikes,
+                    time_attn_mask=processed_attn_mask,
+                    spikes_timestamps=processed_timestamps
+                )
+                _preds = torch.exp(output.preds)
+                current_spikes = torch.concatenate([current_spikes, _preds[:, -1, :]], dim=1)
+            pred_list.append(current_spikes[:, init_bins:, :])
+            gt_list.append(batch['spikes_data'][:, init_bins:, :])
+
+        gt_spike_data = torch.cat(gt_list, 0)
+        pred = torch.cat(pred_list, 0)
+
+    gt_spikes = gt_spike_data.detach().cpu().numpy()
+    pred_spikes = pred.detach().cpu().numpy()
+    tot_num_trials = gt_spikes.shape[0]
+    print(f'Gound truth shape: {gt_spikes.shape}, prediction shape: {pred_spikes.shape}')
+            
+    # prepare the condition matrix
+    b_list = []
+
+    # choice
+    choice = np.array(test_dataset['choice'])
+    choice = np.tile(np.reshape(choice, (choice.shape[0], 1)), (1, T))
+    b_list.append(choice)
+
+    # reward
+    reward = np.array(test_dataset['reward'])
+    reward = np.tile(np.reshape(reward, (reward.shape[0], 1)), (1, T))
+    b_list.append(reward)
+
+    # block
+    block = np.array(test_dataset['block'])
+    block = np.tile(np.reshape(block, (block.shape[0], 1)), (1, T))
+    b_list.append(block)
+
+    behavior_set = np.stack(b_list, axis=-1)
+
+    var_name2idx = {'block': [2],
+                    'choice': [0],
+                    'reward': [1],
+                    'wheel': [3],
+                    }
+    var_value2label = {'block': {(0.2,): "p(left)=0.2",
+                                 (0.5,): "p(left)=0.5",
+                                 (0.8,): "p(left)=0.8", },
+                       'choice': {(-1.0,): "right",
+                                  (1.0,): "left"},
+                       'reward': {(0.,): "no reward",
+                                  (1.,): "reward", }}
+    var_tasklist = ['block', 'choice', 'reward']
+    var_behlist = []
+
+    bps_result_list, r2_result_list = [float('nan')] * tot_num_neurons, [np.array([np.nan, np.nan])] * tot_num_neurons
+    for n_i in tqdm(range(gt_spikes.shape[2])):
+        # compute co-bps
+        gt_held_out = gt_spikes[:, :, [n_i]]
+        pred_held_out = pred_spikes[:, :, [n_i]]
+
+        bps = bits_per_spike(pred_held_out, gt_held_out)
+        if np.isinf(bps):
+            bps = np.nan
+        bps_result_list[n_i] = bps
+
+        # compute R2
+        ys = gt_spikes  # [#trials, #timesteps, #neurons]
+        y_preds = pred_spikes  # [#trials, #timesteps, #neurons]
+
+        # plot        
+        X = behavior_set  # [#trials, #timesteps, #variables]
+        _r2_psth, _r2_trial = viz_single_cell(X, ys[:, :, n_i], y_preds[:, :, n_i],
+                                                var_name2idx, var_tasklist, var_value2label, var_behlist,
+                                                subtract_psth=kwargs['subtract'],
+                                                aligned_tbins=kwargs['onset_alignment'],
+                                                neuron_idx=uuids_list[n_i][:4],
+                                                neuron_region=region_list[n_i],
+                                                method=kwargs['method_name'], save_path=kwargs['save_path'])
+        r2_result_list[n_i] = np.array([_r2_psth, _r2_trial])
+        
+    # save co-bps
+    os.makedirs(kwargs['save_path'], exist_ok=True)
+    bps_all = np.array(bps_result_list)
+    bps_mean = np.nanmean(bps_all)
+    bps_std = np.nanstd(bps_all)
+    np.save(os.path.join(kwargs['save_path'], f'bps.npy'), bps_all)
+    # save R2
+    r2_all = np.array(r2_result_list)
+    np.save(os.path.join(kwargs['save_path'], f'r2.npy'), r2_all)
+    return {
+            f"ar_mean_bps": bps_mean,
+            f"ar_std_bps": bps_std,
+            f"ar_mean_r2_psth": np.nanmean(r2_all[:, 0]),
+            f"ar_std_r2_psth": np.nanstd(r2_all[:, 0]),
+            f"ar_mean_r2_trial": np.nanmean(r2_all[:, 1]),
+            f"ar_std_r2_trial": np.nanstd(r2_all[:, 1])
+    }        
+
+    
+    
+    
+
 def co_smoothing_eval(
         model,
         accelerator,
@@ -248,8 +382,8 @@ def co_smoothing_eval(
     target_regions = kwargs['target_regions']
 
     tot_num_neurons = batch['spikes_data'].size()[-1]
-    uuids_list = np.array(test_dataset['cluster_uuids'][0])[:tot_num_neurons]
-    region_list = np.array(test_dataset['cluster_regions'])[0][:tot_num_neurons]
+    uuids_list = np.array(batch['neuron_uuids'][0])[:tot_num_neurons]
+    region_list = np.array(batch['neuron_regions'][0])[:tot_num_neurons]
 
     T = kwargs['n_time_steps']
     N = uuids_list.shape[0]

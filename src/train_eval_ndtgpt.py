@@ -14,7 +14,7 @@ import torch
 import numpy as np
 import os
 from trainer.make import make_trainer
-from utils.eval_utils import load_model_data_local, co_smoothing_eval, behavior_probe_eval
+from utils.eval_utils import load_model_data_local, co_smoothing_eval, behavior_probe_eval, ar_spike_generation
 import warnings
 warnings.simplefilter("ignore")
 
@@ -63,11 +63,11 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="({}){}_model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(
+        name="({}){}_model_{}_method_{}_ual_training_{}_{}".format(
             prefix,
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix,
+            args.unaligned_training, args.suffix,
         )
     )
 
@@ -85,8 +85,6 @@ log_dir = os.path.join(
     "train", 
     "model_{}".format(config.model.model_class),
     "method_{}".format(config.method.model_kwargs.method_name), 
-    "mask_{}".format(args.mask_mode),
-    "ratio_{}".format(args.mask_ratio),
     "ual_training_{}".format(args.unaligned_training),
     args.suffix,
 )
@@ -226,7 +224,56 @@ if args.eval:
     print("           Evaluation            ")
     print("=================================")
 
-    raise NotImplementedError("Evaluation is not implemented yet.")
+    ar_generation = True
+
+    init_bins = 50
+
+    # Configuration
+    configs = {
+        'model_config': 'src/configs/ndtgpt/ndtgpt.yaml',
+        'model_path': os.path.join(log_dir, best_ckpt_path),
+        'trainer_config': 'src/configs/ndtgpt/trainer_ndtgpt.yaml',
+        'seed': config.seed,
+        'eid': eid
+    }
+
+    model, accelerator, dataset, dataloader = load_model_data_local(**configs)
+
+    # base path for evaluation
+    eval_base_path = os.path.join(
+        args.base_path, 
+        eid, 
+        "eval", 
+        "model_{}".format(config.model.model_class),
+        "_method_{}_ual_training_{}_{}".format(config.method.model_kwargs.method_name,  args.unaligned_training, args.suffix),
+    )
+    if not os.path.exists(eval_base_path):
+        os.makedirs(eval_base_path)
+
+    print(f'The evaluation results will be saved in: {eval_base_path}')
+
+    if ar_generation:
+        print('Start AR-generation:')
+        ar_generation_configs = {
+            'subtract': 'task',
+            'onset_alignment': [40],
+            'save_path': os.path.join(eval_base_path), 'ar_generation'),
+            'method_name': 'NDT-GPT',
+        }
+
+        results = ar_spike_generation(
+            model,
+            accelerator,
+            dataloader,
+            dataset,
+            init_bins=init_bins,
+            **ar_generation_configs
+        )
+        print(results)
+        wandb.log(results)
+    
+
+    
 
 # behavior probe
 if args.probe:
