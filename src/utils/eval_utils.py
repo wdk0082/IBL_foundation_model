@@ -6,7 +6,7 @@ from src.utils.utils import set_seed, move_batch_to_device, plot_gt_pred, metric
     plot_rate_and_spike
 from src.utils.config_utils import config_from_kwargs, update_config
 from src.utils.hooks_utils import HookManager
-from src.models.ndt1_v0 import NDT1  # only here is not compatitable. Need to change this for non-regression.
+from src.models.ndt1_v0 import NDT1  # only here is not compatible. Need to change this for non-regression.
 from models.ndtgpt import NDTGPT
 from src.models.stpatch import STPatch
 from src.models.itransformer_multi import iTransformer  # use multi-version for now
@@ -585,12 +585,20 @@ def co_smoothing_eval(
         with torch.no_grad():
             for batch in test_dataloader:
                 batch = move_batch_to_device(batch, accelerator.device)
+                # debug
+                print(batch['spikes_data'].shape[0])
+                
                 gt_list.append(batch['spikes_data'].clone())
                 mask_result = heldout_mask(
                     batch['spikes_data'].clone(),
                     mode='manual',
                     heldout_idxs=target_idxs,  # mask all the heldout neurons
                 )
+
+                # debug
+                _check = mask_result['spikes'].sum(dim=(0,1))
+                # print(torch.nonzero(_check == 0).squeeze())
+                
                 outputs = model(
                     mask_result['spikes'],
                     time_attn_mask=batch['time_attn_mask'],
@@ -608,11 +616,17 @@ def co_smoothing_eval(
         # TODO: fix this for not-poisson condition.
         pred = torch.exp(pred)
 
+        # debug
+        print(pred.shape)
+        
         gt_spikes = gt_spike_data.detach().cpu().numpy()
         pred_spikes = pred.detach().cpu().numpy()
 
         idxs = np.arange(0, tot_num_neurons)[target_idxs] # idx2idx        
 
+        # debug
+        print(uuids_list)
+        
         for n_i in tqdm(range(idxs.shape[0])):
             
             # compute co-bps
@@ -624,6 +638,9 @@ def co_smoothing_eval(
                 bps = np.nan
             bps_result_list[idxs[n_i]] = bps
 
+            # debug
+            print(f'bps on {uuids_list[idxs[n_i]][:4]}: {bps}')
+            
             # compute R2
             ys = gt_spikes  # [#trials, #timesteps, #neurons]
             y_preds = pred_spikes  # [#trials, #timesteps, #neurons]
@@ -969,6 +986,8 @@ def behavior_probe_eval(**kwargs):
     mask_mode = kwargs['mask_mode']
     seed = kwargs['seed']
     eid = kwargs['eid']
+    save_path = kwargs['save_path']
+    
 
     # set seed
     set_seed(seed)
@@ -1259,6 +1278,9 @@ def behavior_probe_eval(**kwargs):
     for layer_name, acc in test_acc.items():
         print(f'{layer_name}, best epoch: {epoch_best[layer_name]}, test acc: {acc}')
         wandb.log({f'{layer_name} test acc': acc})
+
+    # Save
+    np.save(os.path.join(save_path, f'{config.probe.target}_{config.probe.decoder.type}_results.npy'), test_acc)
 
 
 

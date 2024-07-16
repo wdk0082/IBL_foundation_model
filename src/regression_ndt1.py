@@ -31,9 +31,10 @@ ap.add_argument("--base_path", type=str, default='/expanse/lustre/scratch/zwang3
 ap.add_argument("--train", action='store_true')
 ap.add_argument("--eval", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
-ap.add_argument("--epochs", type=int, default=1000)
+ap.add_argument("--epochs", type=int, default=400)
 ap.add_argument("--suffix", type=str, default='common')
-ap.add_argument("--rate_ts", type=float, default=0.1)
+ap.add_argument("--rate_ts", type=float, default=0.03)  # 0.03 will discard around half of the neurons.
+ap.add_argument("--hidden_size", type=int, default=128)
 ap.add_argument("--seed", type=int, default=42)
 args = ap.parse_args()
 eid = args.eid
@@ -46,7 +47,19 @@ kwargs = {
 config = config_from_kwargs(kwargs)
 config = update_config("src/configs/ndt1_v0/trainer_ndt1_v0_reg.yaml", config)
 
+# Update the config by dynamic args.
 config['training']['num_epochs'] = args.epochs
+config['model']['encoder']['transformer']['hidden_size'] = args.hidden_size
+config['model']['encoder']['transformer']['inter_size'] = 4 * args.hidden_size
+
+'''if args.hidden_size > 256:
+    config['optimizer']['wd'] = 1
+else:
+    config['optimizer']['wd'] = 0.01'''
+# Experiment
+config['optimizer']['wd'] = 1  
+
+
 
 # wandb
 prefix = ''
@@ -61,11 +74,11 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="({}){}_model_{}_method_{}_mask_{}_ratio_{}_seed_{}_{}".format(
+        name="({}){}_model_{}_method_{}_mask_{}_ratio_{}_seed_{}_hd_{}_{}".format(
             prefix,
             eid[:5],
             config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio, args.seed, args.suffix,
+            args.mask_mode, args.mask_ratio, args.seed, args.hidden_size, args.suffix,
         )
     )
 
@@ -86,6 +99,7 @@ log_dir = os.path.join(
     "mask_{}".format(args.mask_mode),
     "ratio_{}".format(args.mask_ratio),
     "seed_{}".format(args.seed),
+    "hd_{}".format(args.hidden_size),
     args.suffix,
 )
 if not os.path.exists(log_dir):
@@ -272,7 +286,7 @@ if args.eval:
         eid, 
         "eval", 
         "model_{}".format(config.model.model_class),
-        "_method_{}_mask_{}_ratio_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.suffix),
+        "_method_{}_mask_{}_ratio_{}_seed_{}_hd_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.seed, args.hidden_size, args.suffix),
     )
     if not os.path.exists(eval_base_path):
         os.makedirs(eval_base_path)
@@ -285,7 +299,7 @@ if args.eval:
             'subtract': 'task',
             'onset_alignment': [40],
             'method_name': 'mask_{}'.format(args.mask_mode), 
-            'save_path': os.path.join(eval_base_path, 'co-smoothing'),
+            'save_path': os.path.join(eval_base_path, 'co-smoothing(reg)'),
             'mode': 'regression',
             'n_time_steps': n_time_steps,    
             'is_aligned': True,

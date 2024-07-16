@@ -229,7 +229,7 @@ if args.eval:
 
     init_bins = args.init_bins
     total_time_steps = 100
-    wandb.log(init_bins)
+    wandb.log({'init_bins': init_bins})
 
     # Configuration
     configs = {

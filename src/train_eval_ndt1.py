@@ -60,6 +60,7 @@ if args.eval:
 if args.probe:
     prefix += 'P'
 
+# Note that configs on wandb could be wrong. For example, in eval mode, the config will be uploaded before it's loaded from the disk.
 if config.wandb.use:
     import wandb
     wandb.init(
@@ -290,7 +291,7 @@ if args.eval:
         wandb.log(results)
         
     if co_smooth_manual:
-        _idxs = np.array([49, 222,  50, 177, 254, 113,  81,  62, 130,  60,  38, 234])
+        _idxs = np.array([1, 2,  3, 4, 5, 6,  7,  8, 9,  10,  11, 12])
         target_idxs = np.zeros(num_neurons, dtype=bool)
         target_idxs[_idxs] = True
         print('Start co-smoothing-manual:')
@@ -298,7 +299,7 @@ if args.eval:
             'subtract': 'task',
             'onset_alignment': [40],
             'method_name': 'mask_{}'.format(args.mask_mode),
-            'save_path': os.path.join(eval_base_path, 'co-smoothing'),
+            'save_path': os.path.join(eval_base_path, 'co-smoothing-manual'),
             'mode': 'manual',
             'n_time_steps': n_time_steps,
             'is_aligned': True,
@@ -393,6 +394,19 @@ if args.probe:
     print("=================================")
     print("             Probe               ")
     print("=================================")
+
+    # base path for probe
+    probe_base_path = os.path.join(
+        args.base_path, 
+        eid, 
+        "probe", 
+        "model_{}".format(config.model.model_class),
+        "_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix),
+    )
+    if not os.path.exists(probe_base_path):
+        os.makedirs(probe_base_path)
+
+    print(f'The probe results will be saved in: {probe_base_path}')
     
     probe_configs = {
         'model_config': 'src/configs/ndt1_v0/ndt1_v0.yaml',
@@ -402,6 +416,7 @@ if args.probe:
         'mask_mode': args.mask_mode,
         'seed': config.seed,
         'eid': eid,
+        'save_path': probe_base_path,
     }
 
     behavior_probe_eval(**probe_configs)

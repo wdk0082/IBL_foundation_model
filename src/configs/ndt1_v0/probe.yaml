@@ -1,7 +1,7 @@
 probe:
 
   decoder:
-    type: linear  # linear / mlp
+    type: mlp  # linear / mlp
     hidden_size: 1024   # for the mlp decoder
     n_layers: 1         # for the mlp decoder  Not implemented yet
     act: relu           # for the mlp decoder  Not implemented yet
