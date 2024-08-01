@@ -65,8 +65,8 @@ encoder:
 
   # Transformer
   transformer:
-    n_layers: 16           # number of transformer layers
-    hidden_size: 512     # hidden space of the transformer
+    n_layers: 5           # number of transformer layers
+    hidden_size: 128     # hidden space of the transformer
     use_scalenorm: false  # use scalenorm  instead of layernorm
     use_rope: false       # use rotary postional encoding
     rope_theta: 10000.0   # rope angle of rotation
@@ -76,7 +76,7 @@ encoder:
     attention_bias: true  # learn bias in the attention layers
 
     act: gelu             # activiation function in mlp layers
-    inter_size: 2048      # intermediate dimension in the mlp layers
+    inter_size: 512      # intermediate dimension in the mlp layers
     mlp_bias: true        # learn bias in the mlp layers
     
     dropout: 0.4          # dropout in transformer layers
@@ -84,8 +84,8 @@ encoder:
 
   # Projection to factor space
   factors:  
-    active: false  # project from hidden_size to factors
-    size: 64                  # factors size  
+    active: true  # project from hidden_size to factors
+    size: 32                  # factors size  
     act: relu                 # activation function after projecting to factors
     bias: true                # use bias in projection to factors
     dropout: 0.0              # dropout in projection to factors

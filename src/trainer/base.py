@@ -32,8 +32,16 @@ class Trainer():
 
         if self.config.method.model_kwargs.clf:
             self.metric = 'acc'
+        elif self.config.data.target in ['start_times', 'end_times'] and self.config.method.model_kwargs.method_name == 'sl':
+            if self.config.method.model_kwargs.loss == 'ordinal':
+                self.metric = 'acc'
+            else:
+                self.metric = 'mse'
+                # self.metric = 'mae'
         else:
             self.metric = 'r2'
+
+        print(f'Metric: {self.metric}')
 
 
         if self.config.model.model_class == 'iTransformer':
@@ -231,6 +239,8 @@ class Trainer():
                                        metrics=[self.metric], 
                                        device=self.accelerator.device)
             elif self.config.method.model_kwargs.reg:
+                # debug
+                print(f'gt: {gt}\n preds: {preds}')
                 results = metrics_list(gt=gt,
                                        pred=preds,
                                        metrics=[self.metric],

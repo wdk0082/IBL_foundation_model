@@ -70,7 +70,7 @@ data:
   spike_augmentation: false
 
   include_behav: false # include behavior data
-  target: null
+  target: start_times
 
   load_meta: true
 
@@ -86,13 +86,13 @@ method:
 
   # Passed to the model __init__ method together with the model config
   model_kwargs: 
-    method_name: ssl #ssl 
-
+    method_name: sl #ssl/sl 
     use_lograte: true
-    loss: poisson_nll  # poisson_nll # mse/other distirbutions (todo)
-    output_size: 2
-    clf: false
-    reg: false
+    loss: ordinal   # poisson_nll # mse/other distirbutions (todo)
+    huber_loss_beta: 0.1
+    output_size: 640
+    clf: false  
+    reg: true  
 
   # Passed to the Dataset __init__ method together with the raw dataset. 
   dataset_kwargs: {}

@@ -595,6 +595,12 @@ class NDT1(nn.Module):
                 self.loss_fn = nn.CrossEntropyLoss(reduction="none")
             elif kwargs["loss"] == "mse":
                 self.loss_fn = nn.MSELoss(reduction="none")
+            elif kwargs["loss"] == "mae":
+                self.loss_fn = nn.L1Loss(reduction="none")
+            elif kwargs["loss"] == "huber":
+                self.loss_fn = nn.SmoothL1Loss(reduction="none", beta=kwargs["huber_loss_beta"])
+            elif kwargs["loss"] == "ordinal":
+                self.loss_fn = OrdinalRegressionLoss()
             else:
                 raise Exception(f"Loss {kwargs['loss']} not implemented yet for sl")
 
@@ -694,3 +700,32 @@ class ScaleNorm(nn.Module):
     def forward(self, x):
         norm = self.scale / torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
         return x * norm
+
+
+class OrdinalRegressionLoss(nn.Module):
+    def __init__(self):
+        super(OrdinalRegressionLoss, self).__init__()
+    
+    def forward(self, logits, target):
+        """
+        Args:
+            logits: Tensor of shape (batch_size, n-1), the predicted logits for the n-1 thresholds.
+            target: Tensor of shape (batch_size,), the true labels.
+        """
+        batch_size, n_minus_1 = logits.size()
+        n_classes = n_minus_1 + 1
+        
+        # accumulated labels
+        target_cum = torch.zeros(batch_size, n_classes)
+        for i in range(n_classes):
+            target_cum[:, i] = (target <= i).float()
+        
+        # logits -> probabilities
+        prob = torch.sigmoid(logits)
+        
+        # cumulated probability
+        cum_prob = torch.cat([prob, torch.ones(batch_size, 1)], dim=1)
+        cum_prob = torch.cumsum(cum_prob, dim=1)
+        
+        loss = -torch.sum(target_cum * torch.log(cum_prob + 1e-9) + (1 - target_cum) * torch.log(1 - cum_prob + 1e-9))
+        return loss

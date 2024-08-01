@@ -191,6 +191,14 @@ class BaseDataset(torch.utils.data.Dataset):
                 assert target_behavior != 0, "Invalid value for choice."
                 target_behavior = np.array([0., 1.]) if target_behavior == 1 else np.array([1., 0.])
                 target_behavior = target_behavior.astype(np.float32)
+            if self.target in ['start_times', 'end_times']:
+                # 1.normalize the number (/2000/4000?)
+                # target_behavior /= 2000
+                
+                # 2.discretize [bs, ] -> [bs, ]
+                target_behavior = discretize_data(target_behavior, 0, 6400, 10)
+                
+                
         else:
             target_behavior = np.array([np.nan])
 
@@ -287,6 +295,12 @@ class BaseDataset(torch.utils.data.Dataset):
             "neuron_uuids": list(neuron_uuids),
         }
 
+
+    def discretize_data(data, a, b, bin_size): 
+        bins = torch.arange(a, b, bin_size)
+        discrete_data = torch.bucketize(data, bins)
+        return discrete_data
+    
     def __len__(self):
         if "ibl" in self.dataset_name:
             return len(self.dataset)
@@ -299,3 +313,4 @@ class BaseDataset(torch.utils.data.Dataset):
             return self._preprocess_ibl_data(self.dataset[idx])
         else:
             return self._preprocess_h5_data(self.dataset, idx)
+

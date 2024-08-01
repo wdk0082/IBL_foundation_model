@@ -233,9 +233,9 @@ if args.eval:
     
     # Tasks Selection
     co_smooth = True
-    forward_pred = False
-    inter_region = False
-    intra_region = False
+    forward_pred = True
+    inter_region = True
+    intra_region = True
     co_smooth_manual = False  # Compare with regression baseline
     
     # Fix Args
