@@ -88,11 +88,18 @@ method:
   model_kwargs: 
     method_name: sl #ssl/sl 
     use_lograte: true
-    loss: ordinal   # poisson_nll # mse/other distirbutions (todo)
+    
+    # for simple_ordinal loss, set the output_size to (n_cls-1). ordinal_loss_ncls won't be used.
+    loss: simple_ordinal   # poisson_nll/mse/ordinal/huber/simple_ordinal
     huber_loss_beta: 0.1
-    output_size: 640
-    clf: false  
-    reg: true  
+    ordinal_loss_ncls: 65  # (ub-lb-1)/bin_size + 2
+    
+    output_size: 64
+
+    # one and only one of the following should be true for sl
+    clf: false
+    reg: false
+    ord_reg: true
 
   # Passed to the Dataset __init__ method together with the raw dataset. 
   dataset_kwargs: {}

@@ -572,6 +572,11 @@ class NDT1(nn.Module):
                 pass  # cross-entropy loss uses logits as inputs
             elif kwargs["reg"]:
                 pass
+            elif kwargs["ord_reg"]:
+                if kwargs["loss"] == 'ordinal':  
+                    decoder_layers.append(OrdinalRegressionLayer(num_classes=kwargs["ordinal_loss_ncls"]))
+                elif kwargs["loss"] == 'simple_ordinal':  
+                    decoder_layers.append(SimpleOrdinalReg())  # a sigmoid layer
             else:
                 raise Exception(f"Decoder not implemented yet for sl")
             
@@ -599,8 +604,8 @@ class NDT1(nn.Module):
                 self.loss_fn = nn.L1Loss(reduction="none")
             elif kwargs["loss"] == "huber":
                 self.loss_fn = nn.SmoothL1Loss(reduction="none", beta=kwargs["huber_loss_beta"])
-            elif kwargs["loss"] == "ordinal":
-                self.loss_fn = OrdinalRegressionLoss()
+            elif "ordinal" in kwargs["loss"]:  
+                self.loss_fn = nn.BCELoss(reduction="none")  # ordinal / simple_ordinal
             else:
                 raise Exception(f"Loss {kwargs['loss']} not implemented yet for sl")
 
@@ -623,7 +628,7 @@ class NDT1(nn.Module):
         neuron_regions:   Optional[torch.LongTensor] = None,   # (bs, n_channels)
         masking_mode:     Optional[str] = None,
         spike_augmentation: Optional[bool] = False,
-        target_idxs:      Optional[bool] = None,   # never used
+        **kwargs,
     ) -> NDT1Output:  
 
         # if neuron_regions type is list 
@@ -702,30 +707,19 @@ class ScaleNorm(nn.Module):
         return x * norm
 
 
-class OrdinalRegressionLoss(nn.Module):
+class OrdinalRegressionLayer(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.num_classes = num_classes
+        self.thresholds = nn.Parameter(torch.linspace(0, 1, steps=num_classes-1))
+
+    def forward(self, x):
+        return torch.sigmoid(x - self.thresholds.unsqueeze(0))
+
+class SimpleOrdinalReg(nn.Module):
     def __init__(self):
-        super(OrdinalRegressionLoss, self).__init__()
-    
-    def forward(self, logits, target):
-        """
-        Args:
-            logits: Tensor of shape (batch_size, n-1), the predicted logits for the n-1 thresholds.
-            target: Tensor of shape (batch_size,), the true labels.
-        """
-        batch_size, n_minus_1 = logits.size()
-        n_classes = n_minus_1 + 1
+        super().__init__()
+
+    def forward(self, x):
+        return torch.sigmoid(x)
         
-        # accumulated labels
-        target_cum = torch.zeros(batch_size, n_classes)
-        for i in range(n_classes):
-            target_cum[:, i] = (target <= i).float()
-        
-        # logits -> probabilities
-        prob = torch.sigmoid(logits)
-        
-        # cumulated probability
-        cum_prob = torch.cat([prob, torch.ones(batch_size, 1)], dim=1)
-        cum_prob = torch.cumsum(cum_prob, dim=1)
-        
-        loss = -torch.sum(target_cum * torch.log(cum_prob + 1e-9) + (1 - target_cum) * torch.log(1 - cum_prob + 1e-9))
-        return loss

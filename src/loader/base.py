@@ -122,6 +122,14 @@ def _pad_spike_seq(
             seq = _pad_seq_left_to_n(seq, max_length, pad_value)
     return seq, pad_length
 
+def _discretize_data(data, a, b, bin_size): 
+    bins = torch.arange(a, b, bin_size)
+    discrete_data = torch.bucketize(torch.tensor(data), bins)
+    n_classes = (b-a-1) // bin_size + 2
+    # prepare for ordinal regression and BCELoss
+    return torch.tensor([1.0 if i < discrete_data else 0.0 for i in range(n_classes-1)])
+
+
 
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(
@@ -195,10 +203,8 @@ class BaseDataset(torch.utils.data.Dataset):
                 # 1.normalize the number (/2000/4000?)
                 # target_behavior /= 2000
                 
-                # 2.discretize [bs, ] -> [bs, ]
-                target_behavior = discretize_data(target_behavior, 0, 6400, 10)
-                
-                
+                # 2.discretize [bs, ] -> [bs, n_cls-1]
+                target_behavior = _discretize_data(target_behavior, 0, 6400, 100)
         else:
             target_behavior = np.array([np.nan])
 
@@ -295,11 +301,6 @@ class BaseDataset(torch.utils.data.Dataset):
             "neuron_uuids": list(neuron_uuids),
         }
 
-
-    def discretize_data(data, a, b, bin_size): 
-        bins = torch.arange(a, b, bin_size)
-        discrete_data = torch.bucketize(data, bins)
-        return discrete_data
     
     def __len__(self):
         if "ibl" in self.dataset_name:

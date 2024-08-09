@@ -33,8 +33,9 @@ class Trainer():
         if self.config.method.model_kwargs.clf:
             self.metric = 'acc'
         elif self.config.data.target in ['start_times', 'end_times'] and self.config.method.model_kwargs.method_name == 'sl':
-            if self.config.method.model_kwargs.loss == 'ordinal':
+            if self.config.method.model_kwargs.ord_reg:
                 self.metric = 'acc'
+                # self.metric = 'mse'
             else:
                 self.metric = 'mse'
                 # self.metric = 'mae'
@@ -238,6 +239,7 @@ class Trainer():
                                        pred=preds.argmax(1),
                                        metrics=[self.metric], 
                                        device=self.accelerator.device)
+                
             elif self.config.method.model_kwargs.reg:
                 # debug
                 print(f'gt: {gt}\n preds: {preds}')
@@ -245,6 +247,19 @@ class Trainer():
                                        pred=preds,
                                        metrics=[self.metric],
                                        device=self.accelerator.device)
+                
+            elif self.config.method.model_kwargs.ord_reg:
+                if self.metric in ['mse', 'mae', 'r2']:
+                    gt_idx = (gt>0.5).sum(1).to(torch.float)
+                    preds_idx = (preds>0.5).sum(1).to(torch.float)
+                else:
+                    gt_idx = (gt>0.5).sum(1)
+                    preds_idx = (preds>0.5).sum(1)
+                print(f'gt: {gt_idx}\n preds: {preds_idx}')
+                results = metrics_list(gt=gt_idx,
+                                  pred=preds_idx,
+                                  metrics=[self.metric],
+                                  device=self.accelerator.device)
 
         # debug
         # print('average r2 of top 100 neurons in all trials: ', results[self.metric])
