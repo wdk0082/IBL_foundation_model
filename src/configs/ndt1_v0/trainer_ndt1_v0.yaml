@@ -70,7 +70,7 @@ data:
   spike_augmentation: false
 
   include_behav: false # include behavior data
-  target: choice
+  target: none
 
   load_meta: true
 

@@ -195,7 +195,7 @@ class BaseDataset(torch.utils.data.Dataset):
                                                            spikes_sparse_indptr_list,
                                                            spikes_sparse_shape_list)
 
-        if self.target is not None:
+        if self.target not in [None, 'None', 'none']:
             target_behavior = np.array(data[self.target]).astype(np.float32)
             if self.target == 'choice':
                 assert target_behavior != 0, "Invalid value for choice."
