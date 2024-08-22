@@ -34,10 +34,10 @@ class Trainer():
             self.metric = 'acc'
         elif self.config.data.target in ['start_times', 'end_times'] and self.config.method.model_kwargs.method_name == 'sl':
             if self.config.method.model_kwargs.ord_reg:
-                self.metric = 'acc'
+                self.metric = 'acc'  # ordinal regression
                 # self.metric = 'mse'
             else:
-                self.metric = 'mse'
+                self.metric = 'mse'  # direct regression for time
                 # self.metric = 'mae'
         else:
             self.metric = 'r2'
@@ -233,9 +233,9 @@ class Trainer():
         elif self.config.method.model_kwargs.method_name in ['sl', 'stat_behaviour', 'dyn_behaviour']:
             if self.config.method.model_kwargs.clf:
                 # debug
-                print('############ eval ###############')
-                print(f'gt: {gt}\n preds: {preds}')
-                results = metrics_list(gt=gt.argmax(1),  # TODO: change this (probably)
+                # print('############ eval ###############')
+                # print(f'gt: {gt}\n preds: {preds}')
+                results = metrics_list(gt=gt.argmax(1),  
                                        pred=preds.argmax(1),
                                        metrics=[self.metric], 
                                        device=self.accelerator.device)

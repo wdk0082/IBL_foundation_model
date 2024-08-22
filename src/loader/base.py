@@ -148,6 +148,7 @@ class BaseDataset(torch.utils.data.Dataset):
             load_meta=False,
             brain_region='all',
             dataset_name="ibl",
+            **kwargs,
     ) -> None:
         self.dataset = dataset
         self.target = target
@@ -163,6 +164,7 @@ class BaseDataset(torch.utils.data.Dataset):
         self.brain_region = brain_region
         self.load_meta = load_meta
         self.dataset_name = dataset_name
+        self.kwargs = kwargs
 
     def _preprocess_h5_data(self, data, idx):
         spike_data, rates, _, _ = data
@@ -200,11 +202,8 @@ class BaseDataset(torch.utils.data.Dataset):
                 target_behavior = np.array([0., 1.]) if target_behavior == 1 else np.array([1., 0.])
                 target_behavior = target_behavior.astype(np.float32)
             if self.target in ['start_times', 'end_times']:
-                # 1.normalize the number (/2000/4000?)
-                # target_behavior /= 2000
-                
-                # 2.discretize [bs, ] -> [bs, n_cls-1]
-                target_behavior = _discretize_data(target_behavior, 0, 6400, 100)
+                # discretize [bs, ] -> [bs, n_cls-1]
+                target_behavior = _discretize_data(target_behavior, 0, int(self.kwargs['start_time_up']), int(self.kwargs['dbin_size']))
         else:
             target_behavior = np.array([np.nan])
 
@@ -221,13 +220,14 @@ class BaseDataset(torch.utils.data.Dataset):
             neuron_depths = neuron_regions = np.array([np.nan])
 
         if self.load_meta & (self.brain_region != 'all'):
-            # only load neurons from a given brain region
-            # this is for NDT2 since not enough RAM to load all neurons  
-            region_idxs = np.argwhere(neuron_regions == self.brain_region)
+            # only load neurons from a given brain region  
+            region_idxs = [(self.brain_region in region) for region in neuron_regions]
             binned_spikes_data = binned_spikes_data[:, region_idxs].squeeze()
             neuron_regions = neuron_regions[region_idxs]
             if self.sort_by_depth:
                 neuron_depths = neuron_depths[region_idxs]
+            if self.sort_by_uuids:
+                neuron_uuids = neuron_uuids[region_idxs]
 
         pad_time_length, pad_space_length = 0, 0
 

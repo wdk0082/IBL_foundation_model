@@ -17,7 +17,9 @@ def make_loader(dataset,
                 brain_region='all',
                 load_meta=False,
                 dataset_name="ibl",
-                shuffle=True):
+                shuffle=True,
+                **kwargs,
+               ):
     dataset = BaseDataset(dataset=dataset,
                           target=target,
                           pad_value=pad_value,
@@ -30,6 +32,7 @@ def make_loader(dataset,
                           sort_by_region=sort_by_region,
                           brain_region=brain_region,
                           load_meta=load_meta,
+                          **kwargs,
                           )
     print(f"len(dataset): {len(dataset)}")
 

@@ -129,6 +129,16 @@ if args.train:
     print(train_dataset.column_names)
     print(f"bin_size: {bin_size}")
 
+    # adjust the global time segmentation
+    whole_dataset = concatenate_datasets([train_dataset, val_dataset, test_dataset])
+    max_time = None
+    if config.method.model_kwargs.ord_reg == True:
+        max_time = max(whole_dataset['start_times'])
+        config['method']['model_kwargs']['output_size'] = int(max_time- 1) // config['method']['model_kwargs']['bin_size'] + 1
+        config['method']['model_kwargs']['ordinal_loss_ncls'] = int(max_time - 1) // config['method']['model_kwargs']['bin_size'] + 1
+        print('Max time: ', max_time)
+    
+
     # update the num_neurons related quantity
     num_neurons = len(train_dataset[0]['cluster_uuids'])
     config['model']['encoder']['embedder']['n_channels'] = num_neurons
@@ -148,7 +158,10 @@ if args.train:
                              dataset_name=config.data.dataset_name,
                              sort_by_depth=config.data.sort_by_depth,
                              sort_by_region=config.data.sort_by_region,
-                             shuffle=True)
+                             shuffle=True,
+                             start_time_up=max_time,
+                             dbin_size=config.method.model_kwargs.bin_size,
+                            )
     
     val_dataloader = make_loader(val_dataset, 
                              target=config.data.target,
@@ -162,7 +175,10 @@ if args.train:
                              dataset_name=config.data.dataset_name,
                              sort_by_depth=config.data.sort_by_depth,
                              sort_by_region=config.data.sort_by_region,
-                             shuffle=False)
+                             shuffle=False,
+                             start_time_up=max_time,
+                             dbin_size=config.method.model_kwargs.bin_size,   
+                            )
     
     test_dataloader = make_loader(test_dataset, 
                              target=config.data.target,
@@ -176,7 +192,9 @@ if args.train:
                              dataset_name=config.data.dataset_name,
                              sort_by_depth=config.data.sort_by_depth,
                              sort_by_region=config.data.sort_by_region,
-                             shuffle=False)
+                             shuffle=False,
+                             start_time_up=max_time,
+                             dbin_size=config.method.model_kwargs.bin_size)
     
     # Initialize the accelerator
     accelerator = Accelerator()
@@ -233,9 +251,9 @@ if args.eval:
     
     # Tasks Selection
     co_smooth = True
-    forward_pred = True
-    inter_region = True
-    intra_region = True
+    forward_pred = False
+    inter_region = False
+    intra_region = False
     co_smooth_manual = False  # Compare with regression baseline
     
     # Fix Args
