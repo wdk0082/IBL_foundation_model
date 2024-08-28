@@ -46,7 +46,7 @@ encoder:
     mode: linear          # linear/embed/identity
     mult: 2               # embedding multiplier. hiddden_sizd = n_channels * mult
     adapt: false          # adapt the embedding layer for each day
-    pos: false             # embed position 
+    pos: learnable        # PE: learnable, sinusoidal, none (For RoPE, please set the transformer.use_rope to true and set this to none)
     act: softsign         # activation for the embedding layers
     scale: 1              # scale the embedding multiplying by this number
     bias: true            # use bias in the embedding layer

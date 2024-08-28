@@ -39,6 +39,16 @@ def create_context_mask(context_forward, context_backward, max_F) -> torch.LongT
             mask = mask & back_mask
         return mask
 
+# Create buffer of biggest possible sinusoidal positional embedding
+def create_sinusoidal_pe(max_F, hidden_size) -> torch.LongTensor:  # (max_F, hidden_size)
+    position_encoding = torch.zeros(max_F, hidden_size)
+    position = torch.arange(0, max_F, dtype=torch.float).unsqueeze(1)
+    div_term = torch.exp(torch.arange(0, hidden_size, 2).float() * (-np.log(10000.0) / hidden_size))
+    position_encoding[:, 0::2] = torch.sin(position * div_term)
+    position_encoding[:, 1::2] = torch.cos(position * div_term)
+    return position_encoding
+
+
 # Copied from hf Llama
 # Precompute cos and sin for RoPE
 def get_cos_sin(dim, max_F, base=10000, dtype=torch.get_default_dtype(), device=None):
@@ -184,8 +194,14 @@ class NeuralEmbeddingLayer(nn.Module):
 
         # Embed postion
         self.pos = config.pos
-        if self.pos:
+        if self.pos == 'learnable':
             self.embed_pos = nn.Embedding(config.max_F, hidden_size)
+        elif self.pos == None:
+            pass
+        elif self.pos == 'sinusoidal':
+            sin_pos = create_sinusoidal_pe(config.max_F, hidden_size)
+            self.register_buffer('sin_pos', sin_pos, persistent=False)
+
 
         # Regularization
         self.dropout = nn.Dropout(config.dropout)
@@ -217,8 +233,13 @@ class NeuralEmbeddingLayer(nn.Module):
             x = self.projection(x)
 
         # Embed position
-        if self.pos:
+        if self.pos == 'learnable':
             x += self.embed_pos(spikes_timestamp)
+        elif self.pos == 'sinusoidal':
+            cur_pe = self.sin_pos[:x.size(1), :].to(x.device).unsqueeze(0).expand(x.size(0), x.size(1), x.size(2))
+            x += cur_pe
+        elif self.pos == None:
+            pass
 
         return self.dropout(x), spikes_mask, spikes_timestamp
 

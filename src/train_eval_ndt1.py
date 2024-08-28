@@ -32,8 +32,10 @@ ap.add_argument("--eval", action='store_true')
 ap.add_argument("--probe", action='store_true')
 ap.add_argument("--overwrite", action='store_true')  # TODO: implement this
 ap.add_argument("--unaligned_training", action='store_true')
+ap.add_argument("--nonrandomized_training", action='store_true')
 ap.add_argument("--epochs", type=int, default=1000)
 ap.add_argument("--suffix", type=str, default='common')
+ap.add_argument("--PE", type=str, default='learnable')
 args = ap.parse_args()
 eid = args.eid
 
@@ -46,11 +48,35 @@ config = config_from_kwargs(kwargs)
 config = update_config("src/configs/ndt1_v0/trainer_ndt1_v0.yaml", config)
 config = update_config("src/configs/ndt1_v0/probe.yaml", config)
 
-# Update config by dynamic args
+### Update config by dynamic args
+# Mask
 config['model']['encoder']['masker']['mode'] = args.mask_mode
 config['model']['encoder']['masker']['ratio'] = args.mask_ratio
+# Training
 config['training']['num_epochs'] = args.epochs
+# PE
+if args.PE in ['learnable', 'sinusoidal']:
+    config['model']['encoder']['embedder']['pos'] = args.PE
+elif args.PE == 'rope':
+    config['model']['encoder']['embedder']['pos'] = None
+    config['model']['encoder']['transformer']['use_rope'] = True
+elif args.PE == 'none':
+    config['model']['encoder']['embedder']['pos'] = None
+else:
+    raise NotImplementedError(f'{args.PE} not implemented.')
 
+# Saving Directory
+save_dir_str = 'model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}_nonrand_{}_PE_{}_{}'.format(
+    config.model.model_class,
+    config.method.model_kwargs.method_name,
+    args.mask_mode,
+    args.mask_ratio,
+    args.unaligned_training,
+    args.nonrandomized_training,
+    args.PE,
+    args.suffix,
+)
+    
 # wandb
 prefix = ''
 if args.train:
@@ -67,11 +93,10 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="({}){}_model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(
+        name="({}){}_{}".format(
             prefix,
             eid[:5],
-            config.model.model_class, config.method.model_kwargs.method_name, 
-            args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix,
+            save_dir_str,
         )
     )
 
@@ -87,12 +112,7 @@ log_dir = os.path.join(
     args.base_path, 
     eid, 
     "train", 
-    "model_{}".format(config.model.model_class),
-    "method_{}".format(config.method.model_kwargs.method_name), 
-    "mask_{}".format(args.mask_mode),
-    "ratio_{}".format(args.mask_ratio),
-    "ual_training_{}".format(args.unaligned_training),
-    args.suffix,
+    save_dir_str,
 )
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -110,6 +130,7 @@ if args.train:
     set_seed(config.seed)
     
     # download dataset from huggingface
+    assert (args.unaligned_training and args.nonrandomized_training) == False, "Only one mode should be selected."
     if args.unaligned_training:
         _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
@@ -117,6 +138,11 @@ if args.train:
         train_dataset = dataset["train"]
         val_dataset = dataset["val"]
         test_dataset = dataset["test"]
+    elif args.nonrandomized_training:
+        dataset = load_dataset(f'neurofm123/{eid}_nonrandomized', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        train_dataset = dataset['train']
+        val_dataset = dataset['val']
+        test_dataset = dataset['test']
     else:
         dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
         train_dataset = dataset["train"]
@@ -231,7 +257,6 @@ if args.train:
         model=model,
         train_dataloader=train_dataloader,
         eval_dataloader=val_dataloader,
-        test_dataloader=test_dataloader,
         optimizer=optimizer,
         **trainer_kwargs
     )
@@ -275,11 +300,10 @@ if args.eval:
     
     # base path for evaluation
     eval_base_path = os.path.join(
-        args.base_path, 
-        eid, 
-        "eval", 
-        "model_{}".format(config.model.model_class),
-        "_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix),
+        args.base_path,
+        eid,
+        "eval",
+        save_dir_str,
     )
     if not os.path.exists(eval_base_path):
         os.makedirs(eval_base_path)
@@ -309,7 +333,9 @@ if args.eval:
         wandb.log(results)
         
     if co_smooth_manual:
-        _idxs = np.array([1, 2,  3, 4, 5, 6,  7,  8, 9,  10,  11, 12])
+        _idxs = np.array([395, 425,  76, 532, 279, 502,  58,  17, 636,  71, 108, 264, 489, 369, 211, 640, 653, 608,
+ 535,  22, 154, 121, 327, 626, 278, 281, 166, 658, 452,  66, 559,  95, 571,  91, 112, 333,
+  27, 289, 229, 504, 509, 469,  34, 298, 124,  77, 178, 468,  60, 293, 652, 486, 472, 547])
         target_idxs = np.zeros(num_neurons, dtype=bool)
         target_idxs[_idxs] = True
         print('Start co-smoothing-manual:')
@@ -418,8 +444,7 @@ if args.probe:
         args.base_path, 
         eid, 
         "probe", 
-        "model_{}".format(config.model.model_class),
-        "_method_{}_mask_{}_ratio_{}_ual_training_{}_{}".format(config.method.model_kwargs.method_name, args.mask_mode, args.mask_ratio, args.unaligned_training, args.suffix),
+        save_dir_str,
     )
     if not os.path.exists(probe_base_path):
         os.makedirs(probe_base_path)
