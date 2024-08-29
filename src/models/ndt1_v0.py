@@ -192,11 +192,11 @@ class NeuralEmbeddingLayer(nn.Module):
         # Embedding scale
         self.scale = hidden_size ** 0.5 if config.scale == None else config.scale
 
-        # Embed postion
+        # Embed position
         self.pos = config.pos
         if self.pos == 'learnable':
             self.embed_pos = nn.Embedding(config.max_F, hidden_size)
-        elif self.pos == None:
+        elif self.pos is None:
             pass
         elif self.pos == 'sinusoidal':
             sin_pos = create_sinusoidal_pe(config.max_F, hidden_size)
@@ -238,7 +238,7 @@ class NeuralEmbeddingLayer(nn.Module):
         elif self.pos == 'sinusoidal':
             cur_pe = self.sin_pos[:x.size(1), :].to(x.device).unsqueeze(0).expand(x.size(0), x.size(1), x.size(2))
             x += cur_pe
-        elif self.pos == None:
+        elif self.pos is None:
             pass
 
         return self.dropout(x), spikes_mask, spikes_timestamp
@@ -311,7 +311,7 @@ class NeuralAttention(nn.Module):
         # Attention parameters
         self.query = nn.Linear(self.hidden_size, self.hidden_size, bias=use_bias)
         self.key = nn.Linear(self.hidden_size, self.hidden_size, bias=use_bias)
-        self.value  = nn.Linear(self.hidden_size, self.hidden_size, bias=use_bias)
+        self.value = nn.Linear(self.hidden_size, self.hidden_size, bias=use_bias)
 
         # Flash attention
         # torch.backends.cuda.enable_flash_sdp(True)
@@ -384,9 +384,9 @@ class NeuralEncoderLayer(nn.Module):
         x:          torch.FloatTensor,                  # (bs, seq_len, hidden_size)
         attn_mask:  torch.LongTensor,                   # (bs, seq_len, seq_len)
         timestamp:  Optional[torch.LongTensor] = None,  # (bs, seq_len)          
-    ) -> torch.FloatTensor :                            # (bs, seq_len, hidden_size)
+    ) -> torch.FloatTensor:                            # (bs, seq_len, hidden_size)
         
-        # LN -> Attention -> Residual connectiob
+        # LN -> Attention -> Residual connection
         x = x + self.attn(self.ln1(x), attn_mask, timestamp if self.use_rope else None)
 
         # LN -> MLP -> Residual connection
@@ -517,7 +517,7 @@ class NeuralEncoder(nn.Module):
         # Embed neural data
         x, spikes_mask, spikes_timestamp = self.embedder(spikes, spikes_mask, spikes_timestamp, block_idx, date_idx)
 
-        _, T, _ = x.size() # feature len may have changed after stacking
+        _, T, _ = x.size()  # feature len may have changed after stacking
 
         # Prepare 
         context_mask = self.context_mask[:T,:T].to(x.device).unsqueeze(0).expand(B,T,T)

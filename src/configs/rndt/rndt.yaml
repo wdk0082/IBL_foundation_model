@@ -1,0 +1,6 @@
+model_class: RNDT
+
+
+encoder:
+  from_pt: null
+
