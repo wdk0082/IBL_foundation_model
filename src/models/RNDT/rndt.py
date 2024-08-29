@@ -67,6 +67,7 @@ def create_sinusoidal_pe(max_F, hidden_size) -> torch.LongTensor:  # (max_F, hid
 
 
 class RegionManager:
+    """Region manager for all the brain regions in IBL dataset."""
     def __init__(self, str_truncate=0):
         full_brain_regions = BrainRegions().acronym
 
@@ -86,6 +87,57 @@ class RegionManager:
 
     def __len__(self):
         return len(self.brain_regions)
+
+
+class Session:
+    def __init__(self, eid: str, uuid_list: List[str], region_list: List[str]):
+        self.eid = eid
+        self.uuid_list = uuid_list
+        self.region_list = region_list  # has overlap, not unique
+
+    @property
+    def uuid_to_region(self) -> Dict[str, str]:
+        return dict(zip(self.uuid_list, self.region_list))
+
+    @property
+    def n_neuron(self):
+        return len(self.uuid_list)
+
+    @property
+    def n_region(self):
+        return len(set(self.region_list))
+
+
+class SessionManager:
+    def __init__(self, sessions: Dict[str, Session], region_manager: RegionManager):
+        self.sessions = sessions
+        self.region_manger = region_manager
+        self.uuid_to_region = {uuid: region for session in sessions.values() for uuid, region in session.uuid_to_region.items()}
+        self.uuid_to_region_idx = {uuid: region_manager.region_to_index[region] for uuid, region in self.uuid_to_region.items()}
+
+    def get_session(self, eid: str):
+        return self.sessions[eid]
+
+    def __len__(self):
+        return len(self.sessions)
+
+    @property
+    def neuron_list(self):
+        return list(self.uuid_to_region.keys())
+
+    @property
+    def region_list(self):  # unique, no overlap
+        return list(set(self.uuid_to_region.values()))
+
+    @property
+    def region_stats(self):
+        """(n_region, n_session), following the order of region_list and sessions"""
+
+        region_stats = np.zeros(len(self.region_list), len(self.sessions))
+        for i, region in enumerate(self.region_list):
+            for j, session in enumerate(self.sessions.values()):
+                region_stats[i, j] = sum([1 for r in session.region_list if r == region])
+        return np.ndarray(region_stats)
 
 
 class NeuralMLP(nn.Module):
@@ -354,14 +406,13 @@ class NeuralDecoder(nn.Module):
     def __init__(
             self,
             config: DictConfig,
-            region_manager: RegionManager,  # global
-            max_F: int,
+            session_manager: SessionManager,
+            max_F: int
     ):
         super().__init__()
         self.config = config
-        self.region_to_index = region_manager.region_to_index
-        self.index_to_region = region_manager.index_to_region
-        self.region_query = NeuralRegionQuery(config.query, self.region_to_index)
+        self.session_manager = session_manager
+        self.region_query = NeuralRegionQuery(config.query, self.session_manager.region_manger.region_to_index)
         self.transformer_blocks = nn.ModuleList(
             [
                 NeuralDecoderLayer(
@@ -382,11 +433,10 @@ class NeuralDecoder(nn.Module):
         context_mask = create_context_mask(config.context_forward, config.context_backward, config.embedder.max_F)
         self.register_buffer('context_mask', context_mask, persistent=False)
 
-        # region-wise linear decoder (one linear decoder for each region token)
-        self.region_decoders = nn.ModuleDict()
-        for region in self.region_to_index.keys():
-
-            self.region_decoders[region] = nn.Linear(config.transformer.hidden_size, max_F)
+        # neuron-wise linear decoder
+        self.decoder_dict = nn.ModuleDict()
+        for uuid in self.session_manager.neuron_list:
+            self.decoder_dict[uuid] = nn.Linear(config.transformer.hidden_size, max_F)
 
 
     def forward(

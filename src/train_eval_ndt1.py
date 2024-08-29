@@ -155,7 +155,7 @@ if args.train:
     print(train_dataset.column_names)
     print(f"bin_size: {bin_size}")
 
-    # adjust the global time segmentation
+    # adjust the global time segmentation (For DeTime)
     whole_dataset = concatenate_datasets([train_dataset, val_dataset, test_dataset])
     max_time = None
     if config.method.model_kwargs.ord_reg == True:
