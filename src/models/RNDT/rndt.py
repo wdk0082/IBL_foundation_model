@@ -179,6 +179,8 @@ class NeuralEmbedder(nn.Module):
             self.embedder = nn.Linear(config.n_channel, hidden_size)
         elif config.embedder_type == 'identity':
             self.embedder = nn.Identity()
+        elif config.embedder_type == 'mlp':
+            self.embedder = nn.Sequential([nn.Linear(config.n_channel, 4*hidden_size), nn.Linear(4*hidden_size, hidden_size)])
         else:
             raise NotImplementedError(f"Embedder type {config.embedder_type} not implemented")
 

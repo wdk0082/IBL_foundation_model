@@ -40,8 +40,20 @@ wandb.init(
     project='Detime_Baseline',
     entity='wdk0082',
     config=args.__dict__,
-    name=f'{args.model}',
+    name=f'{args.model}_{args.eid}_nonrand_{args.nonrandomized}',
 )
+
+base_path = '/expanse/lustre/scratch/zwang34/temp_project/random_exp/detime'
+
+save_path = os.path.join(
+    base_path,
+    args.eid,
+    'model_{}_tres_{}s_nonrand_{}'.format(args.model, args.t_res, args.nonrandomized),
+)
+    
+
+if not os.path.exists(save_path):
+    os.makedirs(save_path)
 
 
 if args.nonrandomized:
@@ -171,6 +183,7 @@ for epoch in range(args.epochs):
     if eval_loss < best_eval_loss:
         best_eval_loss = eval_loss
         best_eval_epoch = epoch
+        torch.save(model, os.path.join(save_path, 'model_best.pth'))
         
     print(f"Epoch {epoch} eval loss: {eval_loss}")
 
@@ -193,6 +206,8 @@ for epoch in range(args.epochs):
         "mse": mse,
         "best_epoch": best_eval_epoch,
     })
+
+torch.save(model, os.path.join(save_path, 'model_last.pth'))
 
 wandb.log({
     "best_eval_loss": best_eval_loss

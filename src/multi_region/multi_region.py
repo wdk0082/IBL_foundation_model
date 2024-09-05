@@ -19,7 +19,8 @@ warnings.simplefilter("ignore")
 
 # Fix Args
 EID_PATH = 'data/target_eids.txt'
-RE_SITES = ['VISa', 'DG', 'CA1', 'LP', 'PO']  # shared regions
+RE_SITES = ['VISa', 'DG', 'CA1', 'LP', 'PO', 'all']  # shared regions
+# RE_SITES = ['all']
 
 # Dynamic Args
 ap = argparse.ArgumentParser()
@@ -140,7 +141,10 @@ for cur_region in RE_SITES:
         print(f"bin_size: {bin_size}")
     
         # update the num_neurons related quantity
-        num_neurons = sum([cur_region in region for region in train_dataset[0]['cluster_regions']])
+        if cur_region != 'all':
+            num_neurons = sum([cur_region in region for region in train_dataset[0]['cluster_regions']])
+        else:
+            num_neurons = len(train_dataset[0]['cluster_regions'])
         print(f'Number of neurons in {cur_region}: {num_neurons}')
         config['model']['encoder']['embedder']['n_channels'] = num_neurons
         config['data']['max_space_length'] = num_neurons

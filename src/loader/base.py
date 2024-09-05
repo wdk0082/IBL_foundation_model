@@ -128,8 +128,7 @@ def _discretize_data(data, a, b, bin_size):
     n_classes = (b-a-1) // bin_size + 2
     # prepare for ordinal regression and BCELoss
     return torch.tensor([1.0 if i < discrete_data else 0.0 for i in range(n_classes-1)])
-
-
+    
 
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(
@@ -196,7 +195,10 @@ class BaseDataset(torch.utils.data.Dataset):
                                                            spikes_sparse_shape_list)
 
         if self.target not in [None, 'None', 'none']:
-            target_behavior = np.array(data[self.target]).astype(np.float32)
+            if self.target == 'start_times_raw':
+                target_behavior = np.array(data['start_times']).astype(np.float32)
+            else:
+                target_behavior = np.array(data[self.target]).astype(np.float32)
             if self.target == 'choice':
                 assert target_behavior != 0, "Invalid value for choice."
                 target_behavior = np.array([0., 1.]) if target_behavior == 1 else np.array([1., 0.])
@@ -204,6 +206,8 @@ class BaseDataset(torch.utils.data.Dataset):
             if self.target in ['start_times', 'end_times']:
                 # discretize [bs, ] -> [bs, n_cls-1]
                 target_behavior = _discretize_data(target_behavior, 0, int(self.kwargs['start_time_up']), int(self.kwargs['dbin_size']))
+            if self.target in ['start_times_raw', 'end_times_raw']:
+                pass
         else:
             target_behavior = np.array([np.nan])
 
