@@ -1,10 +1,10 @@
 import argparse
 from datasets import load_dataset, load_from_disk, concatenate_datasets
 from accelerate import Accelerator
-from loader.make_loader import make_loader
+from loader.make_loader import make_loader_flex
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
-from utils.dataset_utils import get_data_from_h5, split_unaligned_dataset
+from utils.dataset_utils import get_data_from_h5, load_multi_session_dataset, split_unaligned_dataset
 from models.ndt1_v0 import NDT1
 from models.stpatch import STPatch
 from models.itransformer_multi import iTransformer
@@ -18,15 +18,15 @@ import warnings
 warnings.simplefilter("ignore")
 
 # Fix Args
-EID_PATH = 'data/target_eids.txt'
+EID_PATH = 'data/train_eids.txt'
+n_sessions = 10
 
 # Dynamic Args
 ap = argparse.ArgumentParser()
 ap.add_argument("--model_name", type=str, default="NDT1")  
 ap.add_argument("--mask_ratio", type=float, default=0.1)
 ap.add_argument("--mask_mode", type=str, default="temporal")
-ap.add_argument("--eid", type=str, default='671c7ea7-6726-4fbe-adeb-f89c2c8e489b')
-ap.add_argument("--base_path", type=str, default='/expanse/lustre/scratch/zwang34/temp_project/random_exp')
+ap.add_argument("--base_path", type=str, default='/expanse/lustre/scratch/zwang34/temp_project/random_exp/alignment')
 ap.add_argument("--train", action='store_true')
 ap.add_argument("--eval", action='store_true')
 ap.add_argument("--probe", action='store_true')
@@ -37,7 +37,6 @@ ap.add_argument("--epochs", type=int, default=1000)
 ap.add_argument("--suffix", type=str, default='common')
 ap.add_argument("--PE", type=str, default='learnable')
 args = ap.parse_args()
-eid = args.eid
 
 # load config
 kwargs = {
@@ -66,8 +65,9 @@ else:
     raise NotImplementedError(f'{args.PE} not implemented.')
 
 # Saving Directory
-save_dir_str = 'model_{}_method_{}_mask_{}_ratio_{}_ual_training_{}_nonrand_{}_PE_{}_{}'.format(
+save_dir_str = 'model_{}_{}ses_method_{}_mask_{}_ratio_{}_ual_training_{}_nonrand_{}_PE_{}_{}'.format(
     config.model.model_class,
+    n_sessions,
     config.method.model_kwargs.method_name,
     args.mask_mode,
     args.mask_ratio,
@@ -93,9 +93,8 @@ if config.wandb.use:
         project=config.wandb.project, 
         entity=config.wandb.entity, 
         config=config,
-        name="({}){}_{}".format(
+        name="({}){}".format(
             prefix,
-            eid[:5],
             save_dir_str,
         )
     )
@@ -110,7 +109,6 @@ best_ckpt_path = 'best'
 # make log dir
 log_dir = os.path.join(
     args.base_path, 
-    eid, 
     "train", 
     save_dir_str,
 )
@@ -132,95 +130,53 @@ if args.train:
     # download dataset from huggingface
     assert (args.unaligned_training and args.nonrandomized_training) == False, "Only one mode should be selected."
     if args.unaligned_training:
-        _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-        _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-        dataset = split_unaligned_dataset(_al, _ual)
-        train_dataset = dataset["train"]
-        val_dataset = dataset["val"]
-        test_dataset = dataset["test"]
+        raise NotImplementedError("UAL training not implemented yet.")
     elif args.nonrandomized_training:
-        dataset = load_dataset(f'neurofm123/{eid}_nonrandomized', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-        train_dataset = dataset['train']
-        val_dataset = dataset['val']
-        test_dataset = dataset['test']
+        raise NotImplementedError("NONRAND training not implemented yet.")
     else:
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-        train_dataset = dataset["train"]
-        val_dataset = dataset["val"]
-        test_dataset = dataset["test"]
-    try:
-        bin_size = train_dataset["binsize"][0]
-    except:
-        bin_size = train_dataset["bin_size"][0]
-    print(train_dataset.column_names)
-    print(f"bin_size: {bin_size}")
-
-    # adjust the global time segmentation (For DeTime)
-    whole_dataset = concatenate_datasets([train_dataset, val_dataset, test_dataset])
-    max_time = None
-    if config.method.model_kwargs.ord_reg == True:
-        max_time = max(whole_dataset['start_times'])
-        config['method']['model_kwargs']['output_size'] = int(max_time- 1) // config['method']['model_kwargs']['bin_size'] + 1
-        config['method']['model_kwargs']['ordinal_loss_ncls'] = int(max_time - 1) // config['method']['model_kwargs']['bin_size'] + 1
-        print('Max time: ', max_time)
+        train_dataset, val_dataset, test_dataset, session_info = load_multi_session_dataset(EID_PATH, config.dirs.dataset_cache_dir, n_eids=n_sessions, download_mode='force_redownload', org='ibl-foundation-model')
     
-
-    # update the num_neurons related quantity
-    num_neurons = len(train_dataset[0]['cluster_uuids'])
-    config['model']['encoder']['embedder']['n_channels'] = num_neurons
-    config['data']['max_space_length'] = num_neurons
-    print(f'number of neurons: {num_neurons}')
+    config['model']['encoder']['embedder']['session_info'] = session_info
     
     # make the dataloader
-    train_dataloader = make_loader(train_dataset, 
+    train_dataloader = make_loader_flex(train_dataset, 
                              target=config.data.target,
                              load_meta=config.data.load_meta,
                              batch_size=config.training.train_batch_size, 
                              pad_to_right=True, 
                              pad_value=-1.,
-                             bin_size=bin_size,
                              max_time_length=config.data.max_time_length,
-                             max_space_length=config.data.max_space_length,
                              dataset_name=config.data.dataset_name,
                              sort_by_depth=config.data.sort_by_depth,
                              sort_by_region=config.data.sort_by_region,
                              shuffle=True,
-                             start_time_up=max_time,
-                             dbin_size=config.method.model_kwargs.bin_size,
                             )
     
-    val_dataloader = make_loader(val_dataset, 
+    val_dataloader = make_loader_flex(val_dataset, 
                              target=config.data.target,
                              load_meta=config.data.load_meta,
-                             batch_size=config.training.test_batch_size, 
+                             batch_size=config.training.train_batch_size, 
                              pad_to_right=True, 
                              pad_value=-1.,
-                             bin_size=bin_size,
                              max_time_length=config.data.max_time_length,
-                             max_space_length=config.data.max_space_length,
                              dataset_name=config.data.dataset_name,
                              sort_by_depth=config.data.sort_by_depth,
                              sort_by_region=config.data.sort_by_region,
                              shuffle=False,
-                             start_time_up=max_time,
-                             dbin_size=config.method.model_kwargs.bin_size,   
                             )
     
-    test_dataloader = make_loader(test_dataset, 
+    test_dataloader = make_loader_flex(test_dataset, 
                              target=config.data.target,
                              load_meta=config.data.load_meta,
-                             batch_size=config.training.test_batch_size, 
+                             batch_size=config.training.train_batch_size, 
                              pad_to_right=True, 
                              pad_value=-1.,
-                             bin_size=bin_size,
                              max_time_length=config.data.max_time_length,
-                             max_space_length=config.data.max_space_length,
                              dataset_name=config.data.dataset_name,
                              sort_by_depth=config.data.sort_by_depth,
                              sort_by_region=config.data.sort_by_region,
                              shuffle=False,
-                             start_time_up=max_time,
-                             dbin_size=config.method.model_kwargs.bin_size)
+                            )
     
     # Initialize the accelerator
     accelerator = Accelerator()

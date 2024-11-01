@@ -303,6 +303,7 @@ class BaseDataset(torch.utils.data.Dataset):
             "neuron_depths": neuron_depths,
             "neuron_regions": list(neuron_regions),
             "neuron_uuids": list(neuron_uuids),
+            "eid": data['eid'],
         }
 
     
@@ -319,3 +320,173 @@ class BaseDataset(torch.utils.data.Dataset):
         else:
             return self._preprocess_h5_data(self.dataset, idx)
 
+
+
+class FlexibleDataset(torch.utils.data.Dataset):
+    """
+    Dataset without padding in space dimension.
+    """
+    def __init__(
+            self,
+            dataset,
+            target=None,  # target behavior
+            pad_value=0.,
+            max_time_length=5000,
+            bin_size=0.05,
+            mask_ratio=0.1,
+            pad_to_right=True,
+            sort_by_depth=False,
+            sort_by_region=False,
+            sort_by_uuids=True,
+            load_meta=False,
+            brain_region='all',
+            dataset_name="ibl",
+            **kwargs,
+    ) -> None:
+        self.dataset = dataset
+        self.target = target
+        self.pad_value = pad_value
+        self.sort_by_depth = sort_by_depth
+        self.sort_by_region = sort_by_region
+        self.sort_by_uuids = sort_by_uuids
+        self.max_time_length = max_time_length
+        self.bin_size = bin_size
+        self.pad_to_right = pad_to_right
+        self.mask_ratio = mask_ratio
+        self.brain_region = brain_region
+        self.load_meta = load_meta
+        self.dataset_name = dataset_name
+        self.kwargs = kwargs
+
+    def _preprocess_h5_data(self, data, idx):
+        spike_data, rates, _, _ = data
+        spike_data, rates = spike_data[idx], rates[idx]
+        # print(spike_data.shape, rates.shape)
+        spike_data, pad_length = _pad_spike_seq(spike_data, self.max_time_length, self.pad_to_right, self.pad_value)
+        # add attention mask
+        attention_mask = _attention_mask(self.max_time_length, pad_length).astype(np.int64)
+        # add spikes timestamps
+        spikes_timestamps = _spikes_timestamps(self.max_time_length, 1)
+        spikes_timestamps = spikes_timestamps.astype(np.int64)
+
+        spike_data = spike_data.astype(np.float32)
+        return {"spikes_data": spike_data,
+                "rates": rates,
+                "spikes_timestamps": spikes_timestamps,
+                "attention_mask": attention_mask}
+
+    def _preprocess_ibl_data(self, data):
+        spikes_sparse_data_list = [data['spikes_sparse_data']]
+        spikes_sparse_indices_list = [data['spikes_sparse_indices']]
+        spikes_sparse_indptr_list = [data['spikes_sparse_indptr']]
+        spikes_sparse_shape_list = [data['spikes_sparse_shape']]
+
+        # [bs, n_bin, n_spikes]
+        binned_spikes_data = get_binned_spikes_from_sparse(spikes_sparse_data_list,
+                                                           spikes_sparse_indices_list,
+                                                           spikes_sparse_indptr_list,
+                                                           spikes_sparse_shape_list)
+        
+        if self.target not in [None, 'None', 'none']:
+            if self.target == 'start_times_raw':
+                target_behavior = np.array(data['start_times']).astype(np.float32)
+            else:
+                target_behavior = np.array(data[self.target]).astype(np.float32)
+            if self.target == 'choice':
+                assert target_behavior != 0, "Invalid value for choice."
+                target_behavior = np.array([0., 1.]) if target_behavior == 1 else np.array([1., 0.])
+                target_behavior = target_behavior.astype(np.float32)
+            if self.target in ['start_times', 'end_times']:
+                # discretize [bs, ] -> [bs, n_cls-1]
+                target_behavior = _discretize_data(target_behavior, 0, int(self.kwargs['start_time_up']), int(self.kwargs['dbin_size']))
+            if self.target in ['start_times_raw', 'end_times_raw']:
+                pass
+        else:
+            target_behavior = np.array([np.nan])
+
+        binned_spikes_data = binned_spikes_data[0]
+
+        if self.load_meta:
+            if 'cluster_depths' in data:
+                neuron_depths = np.array(data['cluster_depths']).astype(np.float32)
+            else:
+                neuron_depths = np.array([np.nan])
+            neuron_regions = np.array(data['cluster_regions']).astype('str')
+            neuron_uuids = np.array(data['cluster_uuids']).astype('str')
+        else:
+            neuron_depths = neuron_regions = np.array([np.nan])
+
+        if self.load_meta & (self.brain_region != 'all'):
+            # only load neurons from a given brain region  
+            region_idxs = [(self.brain_region in region) for region in neuron_regions]
+            binned_spikes_data = binned_spikes_data[:, region_idxs].squeeze()
+            neuron_regions = neuron_regions[region_idxs]
+            if self.sort_by_depth:
+                neuron_depths = neuron_depths[region_idxs]
+            if self.sort_by_uuids:
+                neuron_uuids = neuron_uuids[region_idxs]
+
+        pad_time_length = 0
+
+        num_time_steps, num_neurons = binned_spikes_data.shape
+
+        if self.load_meta:
+            neuron_idxs = np.arange(num_neurons)
+            assert (self.sort_by_depth and self.sort_by_region) == False, "Can only sort either by depth or neuron."
+            if self.sort_by_depth:
+                sorted_neuron_idxs = [x for _, x in sorted(zip(neuron_depths, neuron_idxs))]
+            elif self.sort_by_region:
+                sorted_neuron_idxs = [x for _, x in sorted(zip(neuron_regions, neuron_idxs))]
+            elif self.sort_by_uuids:
+                sorted_neuron_idxs = [x for _, x in sorted(zip(neuron_uuids, neuron_idxs))]
+            else:
+                sorted_neuron_idxs = neuron_idxs.copy()
+            binned_spikes_data = binned_spikes_data[:, sorted_neuron_idxs]
+            neuron_depths = neuron_depths[sorted_neuron_idxs]
+            neuron_regions = neuron_regions[sorted_neuron_idxs]
+            neuron_uuids = neuron_uuids[sorted_neuron_idxs]
+
+        neuron_regions = list(neuron_regions)
+
+        # pad along time dimension
+        if num_time_steps > self.max_time_length:
+            binned_spikes_data = binned_spikes_data[:self.max_time_length]
+        else:
+            if self.pad_to_right:
+                pad_time_length = self.max_time_length - num_time_steps
+                binned_spikes_data = _pad_seq_right_to_n(binned_spikes_data, self.max_time_length, self.pad_value)
+            else:
+                pad_time_length = num_time_steps - self.max_time_length
+                binned_spikes_data = _pad_seq_left_to_n(binned_spikes_data, self.max_time_length, self.pad_value)
+
+
+        spikes_timestamps = np.arange(self.max_time_length).astype(np.int64)
+
+        # add attention mask
+        time_attn_mask = _attention_mask(self.max_time_length, pad_time_length).astype(np.int64)
+        binned_spikes_data = binned_spikes_data.astype(np.float32)
+        
+        return {
+            "spikes_data": binned_spikes_data,
+            "time_attn_mask": time_attn_mask,
+            "spikes_timestamps": spikes_timestamps,
+            "target": target_behavior,
+            "neuron_depths": neuron_depths,
+            "neuron_regions": list(neuron_regions),
+            "neuron_uuids": list(neuron_uuids),
+            "eid": data['eid'],
+        }
+
+    
+    def __len__(self):
+        if "ibl" in self.dataset_name:
+            return len(self.dataset)
+        else:
+            # get the length of the first tuple in the dataset
+            return len(self.dataset[0])
+
+    def __getitem__(self, idx):
+        if "ibl" in self.dataset_name:
+            return self._preprocess_ibl_data(self.dataset[idx])
+        else:
+            return self._preprocess_h5_data(self.dataset, idx)

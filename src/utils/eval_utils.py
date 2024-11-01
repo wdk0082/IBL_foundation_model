@@ -1,7 +1,7 @@
 from datasets import load_dataset, load_from_disk, concatenate_datasets, DatasetDict
 from accelerate import Accelerator
 from src.loader.make_loader import make_loader
-from src.utils.dataset_utils import split_both_dataset, multi_session_zs_dataset_iTransformer, multi_session_dataset_iTransformer
+from src.utils.dataset_utils import split_both_dataset, load_multi_session_dataset
 from src.utils.utils import set_seed, move_batch_to_device, plot_gt_pred, metrics_list, plot_avg_rate_and_spike, \
     plot_rate_and_spike
 from src.utils.config_utils import config_from_kwargs, update_config
@@ -451,7 +451,8 @@ def co_smoothing_eval(
                         spikes_timestamps=batch['spikes_timestamps'],
                         spikes_spacestamps=batch['spikes_spacestamps'],
                         targets=batch['target'],
-                        neuron_regions=batch['neuron_regions']
+                        neuron_regions=batch['neuron_regions'],
+                        eid=batch['eid'][0]
                     )
                     pred_list.append(outputs.preds)
                     
@@ -527,6 +528,7 @@ def co_smoothing_eval(
                     targets=batch['target'],
                     neuron_regions=batch['neuron_regions'],
                     target_idxs=target_idxs,  # need this in regression mode
+                    eid=batch['eid'][0],
                 )
                 pred_list.append(outputs.preds)
 
@@ -607,6 +609,7 @@ def co_smoothing_eval(
                     spikes_spacestamps=batch['spikes_spacestamps'],
                     targets=batch['target'],
                     neuron_regions=batch['neuron_regions'],
+                    eid=batch['eid'][0],
                 )
                 pred_list.append(outputs.preds)
 
@@ -699,7 +702,8 @@ def co_smoothing_eval(
                         spikes_timestamps=batch['spikes_timestamps'],
                         spikes_spacestamps=batch['spikes_spacestamps'],
                         targets=batch['target'],
-                        neuron_regions=batch['neuron_regions']
+                        neuron_regions=batch['neuron_regions'],
+                        eid=batch['eid'][0],
                     )
                     pred_list.append(outputs.preds)
                     
@@ -800,7 +804,8 @@ def co_smoothing_eval(
                             spikes_timestamps=batch['spikes_timestamps'],
                             spikes_spacestamps=batch['spikes_spacestamps'],
                             targets=batch['target'],
-                            neuron_regions=batch['neuron_regions']
+                            neuron_regions=batch['neuron_regions'],
+                            eid=batch['eid'][0],
                         )
                         pred_list.append(outputs.preds)
                         
@@ -1111,7 +1116,8 @@ def behavior_probe_eval(**kwargs):
                 spikes_timestamps=batch['spikes_timestamps'],
                 spikes_spacestamps=batch['spikes_spacestamps'],
                 targets=batch['target'],
-                neuron_regions=batch['neuron_regions']
+                neuron_regions=batch['neuron_regions'],
+                eid=batch['eid'][0],
             )
             break
 
@@ -1171,7 +1177,8 @@ def behavior_probe_eval(**kwargs):
                 spikes_timestamps=batch['spikes_timestamps'],
                 spikes_spacestamps=batch['spikes_spacestamps'],
                 targets=batch['target'],
-                neuron_regions=batch['neuron_regions']
+                neuron_regions=batch['neuron_regions'],
+                eid=batch['eid'][0],
             )
             
             for layer_name, output in hook_manager.outputs.items():
@@ -1253,7 +1260,8 @@ def behavior_probe_eval(**kwargs):
                     spikes_timestamps=batch['spikes_timestamps'],
                     spikes_spacestamps=batch['spikes_spacestamps'],
                     targets=batch['target'],
-                    neuron_regions=batch['neuron_regions']
+                    neuron_regions=batch['neuron_regions'],
+                    eid=batch['eid'][0],
                 )
                 
                 for layer_name, output in hook_manager.outputs.items():

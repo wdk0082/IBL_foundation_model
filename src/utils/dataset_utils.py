@@ -368,10 +368,12 @@ def split_unaligned_dataset(
     })
 
 
-def multi_session_dataset_iTransformer(
+def load_multi_session_dataset(
     eids_path: str,
-    config: DictConfig,
-    n_eids=None
+    cache_dir: str,
+    n_eids=None,  # only use n_eids sessions in eids_path.
+    download_mode='force_redownload',
+    org='neurofm123',
 ):
     with open(eids_path, "r") as file:
         lines = file.readlines()
@@ -383,21 +385,51 @@ def multi_session_dataset_iTransformer(
     dataset_train_list = []
     dataset_val_list = []
     dataset_test_list = []
+    session_info = {}
+    n_valid_ses = 0
     for eid in eid_list:
         print(f"### Loading: {eid} ###")
-        dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+        dataset = load_dataset(f'{org}/{eid}_aligned', cache_dir=cache_dir, download_mode=download_mode)
+
+        ## Check if this dataset is valid. 
+        sample_data = dataset['train'][0]
+        n_neurons_1 = len(sample_data['cluster_uuids'])
+        spikes_sparse_data_list = [sample_data['spikes_sparse_data']]
+        spikes_sparse_indices_list = [sample_data['spikes_sparse_indices']]
+        spikes_sparse_indptr_list = [sample_data['spikes_sparse_indptr']]
+        spikes_sparse_shape_list = [sample_data['spikes_sparse_shape']]
+        n_neurons_2 = get_binned_spikes_from_sparse(spikes_sparse_data_list,
+                                                   spikes_sparse_indices_list,
+                                                   spikes_sparse_indptr_list,
+                                                   spikes_sparse_shape_list).shape[-1]
+        if n_neurons_1 != n_neurons_2:
+            print(f'{eid} is invalid. Will skip this eid')
+            continue      
+        n_valid_ses += 1
+              
         dataset_train_list.append(dataset['train'])
         dataset_val_list.append(dataset['val'])
         dataset_test_list.append(dataset['test'])
+        try:
+            bin_size = dataset['train']["binsize"][0]
+        except:
+            bin_size = dataset['train']["bin_size"][0]
+        session_info[eid] = {
+            "n_neurons": len(dataset['train'][0]['cluster_uuids']),
+            "bin_size": bin_size,
+        }
         
     dataset_train = concatenate_datasets(dataset_train_list)
     dataset_val = concatenate_datasets(dataset_val_list)
     dataset_test = concatenate_datasets(dataset_test_list)
 
-    return dataset_train, dataset_val, dataset_test
+    print(f'Number of valid sessions used: {n_valid_ses}')
 
+    return dataset_train, dataset_val, dataset_test, session_info
+
+    
 def multi_session_zs_dataset_iTransformer(
-    eids_path: str,  # should be a folder contain the split eids.
+    eids_path: str,  # should be a folder contain eids.
     config: DictConfig,
     n_eids_train=None
 ):

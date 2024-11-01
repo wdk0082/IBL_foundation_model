@@ -20,7 +20,7 @@ warnings.simplefilter("ignore")
 # Fix Args
 EID_PATH = 'data/target_eids.txt'
 RE_SITES = ['VISa', 'DG', 'CA1', 'LP', 'PO', 'all']  # shared regions
-# RE_SITES = ['all']
+
 
 # Dynamic Args
 ap = argparse.ArgumentParser()

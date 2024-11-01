@@ -140,14 +140,16 @@ class NeuralEmbeddingLayer(nn.Module):
 
         self.adapt = config.adapt
         self.bias = config.bias
-        self.input_dim = config.n_channels*config.mult
-
         if self.adapt:
-             # One embedding layer for each day
+            self.input_dim = config.input_dim  # specify input dim directly in this mode
+        else:
+            self.input_dim = config.n_channels * config.mult
+        
+        if self.adapt:
+            # One embedding layer for each eid
             if config.mode == "linear":
-                self.embed_spikes = nn.ModuleList([
-                    nn.Linear(config.n_channels, self.input_dim, bias=config.bias) 
-                for i in range(config.n_dates)])
+                embed_dict = {eid: nn.Linear(info['n_neurons'], self.input_dim, bias=self.bias) for eid, info in config.session_info.items()}
+                self.embed_spikes = nn.ModuleDict(embed_dict)
 
             elif config.mode == "embed":
                 self.embed_spikes = nn.ModuleList([
@@ -155,7 +157,7 @@ class NeuralEmbeddingLayer(nn.Module):
                         nn.Embedding(config.max_spikes, config.mult),
                         nn.Flatten(start_dim=-2)
                     )
-                for i in range(config.n_dates)])
+                for i in range(config.n_sessions)])
             else:
                 raise Exception(f"Embedding mode {config.mode} cannot be adaptative")
         else:
@@ -182,7 +184,7 @@ class NeuralEmbeddingLayer(nn.Module):
             self.stack_stride = config.stack.stride
             self.stacking = nn.Unfold(kernel_size=(config.stack.size, self.input_dim),stride=(config.stack.stride,1))
             self.stacking_mask = nn.Unfold(kernel_size=(config.stack.size, 1),stride=(config.stack.stride,1))
-            self.stack_projection = nn.Linear(self.input_dim*config.stack.size,hidden_size)
+            self.stack_projection = nn.Linear(self.input_dim*config.stack.size, hidden_size)
         else:
             self.projection = nn.Linear(self.input_dim, hidden_size)
 
@@ -213,11 +215,13 @@ class NeuralEmbeddingLayer(nn.Module):
             spikes_timestamp: Optional[torch.LongTensor],          # (bs, seq_len)
             block_idx:          Optional[torch.LongTensor] = None,   # (bs)
             date_idx:           Optional[torch.LongTensor] = None,   # (bs)
+            eid:                Optional[str] = None,  
         ) -> Tuple[torch.FloatTensor,torch.LongTensor,torch.LongTensor]:   # (bs, new_seq_len, hidden_size),  (bs, new_seq_len), (bs, new_seq_len)
 
         # Embed spikes
         if self.adapt:
-            x = torch.stack([self.embed_spikes[date_idx[i]](f) for i, f in enumerate(spikes)], 0)
+            # Sticher
+            x = self.embed_spikes[eid](spikes)
         else:
             x = self.embed_spikes(spikes)
 
@@ -488,6 +492,7 @@ class NeuralEncoder(nn.Module):
             date_idx:         Optional[torch.LongTensor] = None,   # (bs)
             neuron_regions:   Optional[np.ndarray] = None,  # (bs, n_channels)
             masking_mode:     Optional[str] = None,
+            eid:              Optional[str] = None,
     ) -> torch.FloatTensor:                     # (bs, seq_len, hidden_size)
         
         B, T, N = spikes.size() # batch size, fea len, n_channels
@@ -515,7 +520,7 @@ class NeuralEncoder(nn.Module):
             targets_mask = None
 
         # Embed neural data
-        x, spikes_mask, spikes_timestamp = self.embedder(spikes, spikes_mask, spikes_timestamp, block_idx, date_idx)
+        x, spikes_mask, spikes_timestamp = self.embedder(spikes, spikes_mask, spikes_timestamp, block_idx, date_idx, eid)
 
         _, T, _ = x.size()  # feature len may have changed after stacking
 
@@ -576,32 +581,50 @@ class NDT1(nn.Module):
         else:
             raise Exception(f"Method {self.method} not implemented yet for NDT1")
 
-        decoder_layers = []
-        if self.method == "sl":
-            decoder_layers.append(
-                nn.Linear(config.encoder.embedder.max_F * self.encoder.out_proj.out_size, n_outputs)
-            )
-        else:
-            decoder_layers.append(nn.Linear(self.encoder.out_proj.out_size, n_outputs))
-
-        if self.method == "sft" and not kwargs["use_lograte"]:
-            decoder_layers.append(nn.ReLU()) # If we're not using lograte, we need to feed positive rates
-        if self.method == "ctc":
-            decoder_layers.append(nn.LogSoftmax(dim=-1))  # CTC loss asks for log-softmax-normalized logits
-        if self.method == "sl":
-            if kwargs["clf"]:
-                pass  # cross-entropy loss uses logits as inputs
-            elif kwargs["reg"]:
-                pass
-            elif kwargs["ord_reg"]:
-                if kwargs["loss"] == 'ordinal':  
-                    decoder_layers.append(OrdinalRegressionLayer(num_classes=kwargs["ordinal_loss_ncls"]))
-                elif kwargs["loss"] == 'simple_ordinal':  
-                    decoder_layers.append(SimpleOrdinalReg())  # a sigmoid layer
+        if config.encoder.embedder.adapt:
+            ## Sticher logic:
+            ## 1. If it's for ssl, then one different decoder is used for each eid.
+            ## 2. If it's for sl, then a shared decoder will be used.
+            if self.method == "sl":
+                decoder_layers = []
+                decoder_layers.append(
+                    nn.Linear(config.encoder.embedder.max_F * self.encoder.out_proj.out_size, n_outputs)  # Concatenate all tokens.
+                )
+                self.decoder = nn.Sequential(*decoder_layers)
+            elif self.method == "ssl":
+                decoder_layers = nn.ModuleDict()
+                for eid, info in config.encoder.embedder.session_info.items():
+                    decoder_layers[eid] = nn.Linear(self.encoder.out_proj.out_size, info['n_neurons'])
+                self.decoder = decoder_layers
             else:
-                raise Exception(f"Decoder not implemented yet for sl")
-            
-        self.decoder = nn.Sequential(*decoder_layers)
+                raise NotImplementedError(f"{self.method} not implemented yet for the adapt mode")
+        else:
+            decoder_layers = []
+            if self.method == "sl":
+                decoder_layers.append(
+                    nn.Linear(config.encoder.embedder.max_F * self.encoder.out_proj.out_size, n_outputs)
+                )
+            else:
+                decoder_layers.append(nn.Linear(self.encoder.out_proj.out_size, n_outputs))
+    
+            if self.method == "sft" and not kwargs["use_lograte"]:
+                decoder_layers.append(nn.ReLU()) # If we're not using lograte, we need to feed positive rates
+            if self.method == "ctc":
+                decoder_layers.append(nn.LogSoftmax(dim=-1))  # CTC loss asks for log-softmax-normalized logits
+            if self.method == "sl":
+                if kwargs["clf"]:
+                    pass  # cross-entropy loss uses logits as inputs
+                elif kwargs["reg"]:
+                    pass
+                elif kwargs["ord_reg"]:
+                    if kwargs["loss"] == 'ordinal':  
+                        decoder_layers.append(OrdinalRegressionLayer(num_classes=kwargs["ordinal_loss_ncls"]))
+                    elif kwargs["loss"] == 'simple_ordinal':  
+                        decoder_layers.append(SimpleOrdinalReg())  # a sigmoid layer
+                else:
+                    raise Exception(f"Decoder not implemented yet for sl")
+                
+            self.decoder = nn.Sequential(*decoder_layers)
 
         if decoder_pt_path is not None:
             self.decoder.load_state_dict(torch.load(os.path.join(decoder_pt_path, "decoder.bin")))
@@ -638,9 +661,7 @@ class NDT1(nn.Module):
         self, 
         spikes:           torch.FloatTensor,  # (bs, seq_len, n_channels)
         time_attn_mask:      torch.LongTensor,   # (bs, seq_len)
-        space_attn_mask:      torch.LongTensor,   # (bs, seq_len)
         spikes_timestamps: torch.LongTensor,   # (bs, seq_len)
-        spikes_spacestamps: torch.LongTensor,   # (bs, seq_len)
         targets:          Optional[torch.FloatTensor] = None,  # (bs, tar_len)
         spikes_lengths:   Optional[torch.LongTensor] = None,   # (bs) 
         targets_lengths:  Optional[torch.LongTensor] = None,   # (bs)
@@ -648,26 +669,15 @@ class NDT1(nn.Module):
         date_idx:         Optional[torch.LongTensor] = None,   # (bs)
         neuron_regions:   Optional[torch.LongTensor] = None,   # (bs, n_channels)
         masking_mode:     Optional[str] = None,
-        spike_augmentation: Optional[bool] = False,
+        spike_augmentation: Optional[bool] = False,  # Not used.
+        eid:              Optional[str] = None,
         **kwargs,
     ) -> NDT1Output:  
 
         # if neuron_regions type is list 
         if isinstance(neuron_regions, list):
             neuron_regions = np.asarray(neuron_regions).T
-
-        # Augmentation
-        if spike_augmentation:
-            if self.training:
-                # 50% of the time, we reverse the spikes
-                if torch.rand(1) > 0.5:
-                    # calculate unmask timestamps
-                    unmask_temporal = time_attn_mask.sum(dim=1)
-                    for i in range(len(unmask_temporal)):
-                        # reverse idx from unmask_temporal to 0
-                        reverse_idx = torch.arange(unmask_temporal[i]-1, -1, -1)
-                        spikes[i, :unmask_temporal[i]] = spikes[i, reverse_idx]
-
+        
         if self.method == "ssl":
             targets = spikes.clone()
             if self.encoder.int_spikes:
@@ -675,15 +685,18 @@ class NDT1(nn.Module):
 
         # Encode neural data
         targets_mask = torch.zeros_like(spikes, dtype=torch.int64)
-        x, new_mask = self.encoder(spikes, time_attn_mask, spikes_timestamps, block_idx, date_idx, neuron_regions, masking_mode)
+        x, new_mask = self.encoder(spikes, time_attn_mask, spikes_timestamps, block_idx, date_idx, neuron_regions, masking_mode, eid)
         targets_mask = targets_mask | new_mask
         spikes_lengths = self.encoder.embedder.get_stacked_lens(spikes_lengths)
 
         # Transform neural embeddings into rates/logits
         if self.method == "sl":
-            x = x.flatten(start_dim=1)
-            
-        outputs = self.decoder(x)
+            x = x.flatten(start_dim=1)  # concatenate
+
+        if self.config.encoder.embedder.adapt and self.method == "ssl":
+            outputs = self.decoder[eid](x)
+        else:
+            outputs = self.decoder(x)
 
         # Compute the loss over unmasked outputs
         if self.method == "ssl":

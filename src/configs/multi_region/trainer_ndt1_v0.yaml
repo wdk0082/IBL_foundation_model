@@ -108,7 +108,7 @@ method:
 
 optimizer:
   gradient_accumulation_steps: 1
-  lr: 1.e-3
+  lr: 1.e-5
   wd: 0.1
   eps: 1.e-8
   warmup_pct: 0.15 # cosine/linear

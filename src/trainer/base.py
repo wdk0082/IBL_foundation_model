@@ -28,7 +28,7 @@ class Trainer():
         self.config = kwargs.get("config", None)
         self.num_neurons = kwargs.get("num_neurons", None)
         self.target_idxs = kwargs.get("target_idxs", None)
-        self.active_neurons_idx = None
+        self.active_neurons_idx_list = None
 
         if self.config.method.model_kwargs.clf:
             self.metric = 'acc'
@@ -80,9 +80,9 @@ class Trainer():
                     self.save_model(name="best", epoch=epoch)
                     if self.config.method.model_kwargs.method_name in ['ssl', 'reg']:
                         gt_pred_fig = self.plot_epoch(
-                            gt=eval_epoch_results['eval_gt'],
+                            gt=eval_epoch_results['eval_gt'],  
                             preds=eval_epoch_results['eval_preds'], epoch=epoch,
-                            active_neurons=self.active_neurons_idx
+                            active_neurons=self.active_neurons_idx_list
                         )
                         if self.config.wandb.use:
                             wandb.log({"best_epoch": epoch,
@@ -108,7 +108,7 @@ class Trainer():
                         gt=eval_epoch_results['eval_gt'], 
                         preds=eval_epoch_results['eval_preds'], 
                         epoch=epoch,
-                        active_neurons=self.active_neurons_idx
+                        active_neurons=self.active_neurons_idx_list
                     )
                     if self.config.wandb.use:
                         wandb.log({
@@ -171,14 +171,13 @@ class Trainer():
         return self.model(
             batch['spikes_data'],
             time_attn_mask=batch['time_attn_mask'],
-            space_attn_mask=batch['space_attn_mask'],
             spikes_timestamps=batch['spikes_timestamps'],
-            spikes_spacestamps=batch['spikes_spacestamps'],
             targets=batch['target'],  # for supervised learning
             neuron_regions=batch['neuron_regions'],
             masking_mode=masking_mode, 
             spike_augmentation=self.config.data.spike_augmentation,
-            target_idxs=self.target_idxs
+            target_idxs=self.target_idxs,
+            eid=batch['eid'][0],
         ) 
     
     def eval_epoch(self):
@@ -208,75 +207,80 @@ class Trainer():
                     else:
                         gt.append(outputs.targets.clone())
                     preds.append(outputs.preds.clone())
-            gt = torch.cat(gt, dim=0)
-            preds = torch.cat(preds, dim=0)
+
             
         if self.config.method.model_kwargs.loss == "poisson_nll":
-            preds = torch.exp(preds)
+            preds = [torch.exp(pred) for pred in preds]
         elif self.config.method.model_kwargs.loss == "cross_entropy":
-            preds = torch.nn.functional.softmax(preds, dim=1)
+            preds = [torch.nn.functional.softmax(pred, dim=1) for pred in preds]
 
+        results_list = []
         if self.config.method.model_kwargs.method_name in ['ssl', 'reg']:
-            # use the most active 50 neurons to select model (r2)
-            # neurons in each trial will be different
-            _tmp_ac = gt.detach().cpu().numpy().mean(1)  # (bs, n_neurons)
-            self.active_neurons_idx = np.argsort(_tmp_ac, axis=1)[:, ::-1][:, :50].copy()
-            _bs = np.arange(gt.shape[0])[:, None].copy()
-
-
-        # TODO: model selection might be not rigorous (right) now
-        if self.config.method.model_kwargs.method_name in ['ssl', 'reg']:
-            results = metrics_list(gt=gt[_bs, :, self.active_neurons_idx].transpose(0, 1).transpose(1, 2),
-                                   pred=preds[_bs, :, self.active_neurons_idx].transpose(0, 1).transpose(1, 2),
-                                   metrics=["r2"], 
-                                   device=self.accelerator.device)
+            # use the most active 50 neurons to select model (r2).
+            # neurons in each batch will be different, 
+            # since different batches are sampled from different session.
+            self.active_neurons_idx_list = [np.argsort(sample.detach().cpu().numpy().mean((0, 1)), axis=0)[-50:] for sample in gt]
+            
+            for k, active_neurons_idx in enumerate(self.active_neurons_idx_list):
+                # DEBUG
+                # print(gt[k][:, :, active_neurons_idx].transpose(0, 1).transpose(1, 2))
+                # print(preds[k][:, :, active_neurons_idx].transpose(0, 1).transpose(1, 2))
+                # print(gt[k][:, :, active_neurons_idx].shape)
+                results = metrics_list(gt=gt[k][:, :, active_neurons_idx],
+                                       pred=preds[k][:, :, active_neurons_idx],
+                                       metrics=["r2"], 
+                                       device=self.accelerator.device)
+                results_list.append(results[self.metric]*gt[k].shape[0])
         elif self.config.method.model_kwargs.method_name in ['sl', 'stat_behaviour', 'dyn_behaviour']:
             if self.config.method.model_kwargs.clf:
-                # debug
-                # print('############ eval ###############')
-                # print(f'gt: {gt}\n preds: {preds}')
-                results = metrics_list(gt=gt.argmax(1),  
-                                       pred=preds.argmax(1),
-                                       metrics=[self.metric], 
-                                       device=self.accelerator.device)
+                for s_gt, s_preds in zip(gt, preds):
+                    results = metrics_list(gt=s_gt.argmax(1),  
+                                           pred=s_preds.argmax(1),
+                                           metrics=[self.metric], 
+                                           device=self.accelerator.device)
+                    results_list.append(results[self.metric]*s_gt.shape[0])
                 
             elif self.config.method.model_kwargs.reg:
-                # debug
-                print(f'gt: {gt}\n preds: {preds}')
-                results = metrics_list(gt=gt,
-                                       pred=preds,
-                                       metrics=[self.metric],
-                                       device=self.accelerator.device)
+                for s_gt, s_preds in zip(gt, preds):
+                    results = metrics_list(gt=s_gt,
+                                           pred=s_preds,
+                                           metrics=[self.metric],
+                                           device=self.accelerator.device)
+                    results_list.append(results[self.metric]*s_gt.shape[0])
                 
             elif self.config.method.model_kwargs.ord_reg:
-                if self.metric in ['mse', 'mae', 'r2']:
-                    gt_idx = (gt>0.5).sum(1).to(torch.float)
-                    preds_idx = (preds>0.5).sum(1).to(torch.float)
-                else:
-                    gt_idx = (gt>0.5).sum(1)
-                    preds_idx = (preds>0.5).sum(1)
-                print(f'gt: {gt_idx}\n preds: {preds_idx}')
-                results = metrics_list(gt=gt_idx,
-                                  pred=preds_idx,
-                                  metrics=[self.metric],
-                                  device=self.accelerator.device)
-
-        # debug
-        # print('average r2 of top 100 neurons in all trials: ', results[self.metric])
+                for s_gt, s_preds in zip(gt, preds):
+                    if self.metric in ['mse', 'mae', 'r2']:
+                        gt_idx = (s_gt>0.5).sum(1).to(torch.float)
+                        preds_idx = (s_preds>0.5).sum(1).to(torch.float)
+                    else:
+                        gt_idx = (s_gt>0.5).sum(1)
+                        preds_idx = (s_preds>0.5).sum(1)
+                    print(f'gt: {gt_idx}\n preds: {preds_idx}')
+                    results = metrics_list(gt=gt_idx,
+                                      pred=preds_idx,
+                                      metrics=[self.metric],
+                                      device=self.accelerator.device)
+                    results_list.append(results[self.metric]*s_gt.shape[0])
+        
+        # DEBUG
+        # print(results_list)
         return {
             "eval_loss": eval_loss/eval_examples,
-            f"eval_trial_avg_{self.metric}": results[self.metric],
-            "eval_gt": gt,
-            "eval_preds": preds,
+            f"eval_trial_avg_{self.metric}": sum(results_list)/eval_examples,
+            "eval_gt": gt,  # list of batches
+            "eval_preds": preds,  # list of batches
         }
 
-    def plot_epoch(self, gt, preds, epoch, active_neurons):  # (bs, seq_len, n_neurons)
+    def plot_epoch(self, gt, preds, epoch, active_neurons):  # [(bs, seq_len, n_neurons), ...]
 
-        # debug (why did the zero shot program crash?)
-        print('plot_epoch: ', gt.shape, preds.shape, active_neurons.shape)
+        # select the first batch to plot
+        gt = gt[0]
+        preds = preds[0]
+        active_neurons = active_neurons[0]
         
         trial_idx = random.randint(0, gt.shape[0]-1)  # random trial to plot
-        active_neurons = active_neurons[trial_idx, :5].tolist()  # plot the top 5 active neurons in selected trials
+        active_neurons = active_neurons[:5].tolist()  # plot the top 5 active neurons in selected batch.
 
         gt_pred_fig = plot_gt_pred(gt=gt[trial_idx].T.cpu().numpy(),
                                    pred=preds[trial_idx].T.detach().cpu().numpy(),

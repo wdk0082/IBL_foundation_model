@@ -1,7 +1,7 @@
 seed: 42
 
 savestring: test
-wandb_project: ndt1_v0
+wandb_project: ndt1_v0_multi
 log_to_wandb: false
 
 verbosity: 0
@@ -10,7 +10,7 @@ verbosity: 0
 wandb:
   use: True
   entity: wdk0082
-  project: ndt1_v0
+  project: ndt1_v0_multi
   run_name: null
 
 # Logging directories
@@ -74,8 +74,8 @@ data:
 
   load_meta: true
 
-  num_sessions: 3
-  test_session_eid: ["671c7ea7-6726-4fbe-adeb-f89c2c8e489b"] 
+  num_sessions: None
+  test_session_eid: [] 
 
   split_method: session_based # random_split/session_based
 
