@@ -45,7 +45,7 @@ encoder:
     mode: linear          # linear/embed/identity
     mult: 2               # embedding multiplier. hidden_sizd = n_channels * mult
     input_dim: 2048       # Directly specify the input dim (Only for Adapt mode)
-    adapt: true          # adapt the embedding layer for each day
+    adapt: true           # adapt the embedding layer for each session (**Key modifications for multi-session case)
     pos: learnable        # PE: learnable, sinusoidal, none (For RoPE, please set the transformer.use_rope to true and set this to none)
     act: softsign         # activation for the embedding layers
     scale: 1              # scale the embedding multiplying by this number

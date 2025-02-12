@@ -76,7 +76,7 @@ def make_loader_flex(dataset,
     
     print(f"len(dataset): {len(flex_dataset)}")
 
-    eid_batch_sampler = EIDBatchSampler(flex_dataset, batch_size=batch_size, shuffle=shuffle)  # This function needs raw dataset param.
+    eid_batch_sampler = EIDBatchSampler(flex_dataset, batch_size=batch_size, shuffle=shuffle) 
     
     dataloader = torch.utils.data.DataLoader(flex_dataset, batch_sampler=eid_batch_sampler)
     

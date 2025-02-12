@@ -176,7 +176,7 @@ class Trainer():
             neuron_regions=batch['neuron_regions'],
             masking_mode=masking_mode, 
             spike_augmentation=self.config.data.spike_augmentation,
-            target_idxs=self.target_idxs,
+            target_idxs=self.target_idxs,  # for ndt regression
             eid=batch['eid'][0],
         ) 
     

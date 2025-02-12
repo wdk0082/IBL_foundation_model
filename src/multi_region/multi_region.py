@@ -1,10 +1,10 @@
 import argparse
 from datasets import load_dataset, load_from_disk, concatenate_datasets
 from accelerate import Accelerator
-from src.loader.make_loader import make_loader
+from src.loader.make_loader import make_loader_flex
 from src.utils.utils import set_seed
 from src.utils.config_utils import config_from_kwargs, update_config
-from src.utils.dataset_utils import get_data_from_h5, multi_session_dataset_iTransformer, split_unaligned_dataset
+from src.utils.dataset_utils import get_data_from_h5, load_multi_session_dataset, split_unaligned_dataset
 from src.models.ndt1_v0 import NDT1
 from src.models.stpatch import STPatch
 from src.models.itransformer_multi import iTransformer
@@ -121,18 +121,16 @@ for cur_region in RE_SITES:
         set_seed(config.seed)
         
         # download dataset from huggingface
+        assert (args.unaligned_training and args.nonrandomized_training) == False, "Only one mode should be selected."
         if args.unaligned_training:
-            _al = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-            _ual = load_dataset(f'neurofm123/{eid}', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-            dataset = split_unaligned_dataset(_al, _ual)
-            train_dataset = dataset["train"]
-            val_dataset = dataset["val"]
-            test_dataset = dataset["test"]
+            raise NotImplementedError("UAL training not implemented yet.")
+        elif args.nonrandomized_training:
+            raise NotImplementedError("NONRAND training not implemented yet.")
         else:
-            dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
-            train_dataset = dataset["train"]
-            val_dataset = dataset["val"]
-            test_dataset = dataset["test"]
+            train_dataset, val_dataset, test_dataset, session_info = load_multi_session_dataset(EID_PATH, config.dirs.dataset_cache_dir, n_eids=n_sessions, download_mode='force_redownload', org='ibl-foundation-model')
+        
+        config['model']['encoder']['embedder']['session_info'] = session_info
+
         try:
             bin_size = train_dataset["binsize"][0]
         except:
@@ -155,7 +153,7 @@ for cur_region in RE_SITES:
             continue
         
         # make the dataloader
-        train_dataloader = make_loader(train_dataset, 
+        train_dataloader = make_loader_flex(train_dataset, 
                                  target=config.data.target,
                                  load_meta=config.data.load_meta,
                                  batch_size=config.training.train_batch_size, 
@@ -163,7 +161,6 @@ for cur_region in RE_SITES:
                                  pad_value=-1.,
                                  bin_size=bin_size,
                                  max_time_length=config.data.max_time_length,
-                                 max_space_length=config.data.max_space_length,
                                  dataset_name=config.data.dataset_name,
                                  sort_by_depth=config.data.sort_by_depth,
                                  sort_by_region=config.data.sort_by_region,
@@ -171,7 +168,7 @@ for cur_region in RE_SITES:
                                  shuffle=True,
                                 )
         
-        val_dataloader = make_loader(val_dataset, 
+        val_dataloader = make_loader_flex(val_dataset, 
                                  target=config.data.target,
                                  load_meta=config.data.load_meta,
                                  batch_size=config.training.test_batch_size, 
@@ -179,7 +176,6 @@ for cur_region in RE_SITES:
                                  pad_value=-1.,
                                  bin_size=bin_size,
                                  max_time_length=config.data.max_time_length,
-                                 max_space_length=config.data.max_space_length,
                                  dataset_name=config.data.dataset_name,
                                  sort_by_depth=config.data.sort_by_depth,
                                  sort_by_region=config.data.sort_by_region,
@@ -187,7 +183,7 @@ for cur_region in RE_SITES:
                                  shuffle=False,
                                 )
         
-        test_dataloader = make_loader(test_dataset, 
+        test_dataloader = make_loader_flex(test_dataset, 
                                  target=config.data.target,
                                  load_meta=config.data.load_meta,
                                  batch_size=config.training.test_batch_size, 
@@ -195,7 +191,6 @@ for cur_region in RE_SITES:
                                  pad_value=-1.,
                                  bin_size=bin_size,
                                  max_time_length=config.data.max_time_length,
-                                 max_space_length=config.data.max_space_length,
                                  dataset_name=config.data.dataset_name,
                                  sort_by_depth=config.data.sort_by_depth,
                                  sort_by_region=config.data.sort_by_region,

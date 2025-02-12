@@ -723,10 +723,6 @@ class NDT1(nn.Module):
         torch.save(self.decoder.state_dict(), os.path.join(save_dir, "decoder.bin"))
         torch.save(dict(self.config.decoder), os.path.join(save_dir, "decoder_config.pth"))
 
-    def load_checkpoint(self, load_dir):
-        self.encoder.load_state_dict(torch.load(os.path.join(load_dir,"encoder.bin")))
-        self.decoder.load_state_dict(torch.load(os.path.join(load_dir,"decoder.bin")))
-
 
 
 class ScaleNorm(nn.Module):

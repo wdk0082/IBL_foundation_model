@@ -1,6 +1,6 @@
 from datasets import load_dataset, load_from_disk, concatenate_datasets, DatasetDict
 from accelerate import Accelerator
-from src.loader.make_loader import make_loader
+from src.loader.make_loader import make_loader_flex
 from src.utils.dataset_utils import split_both_dataset, load_multi_session_dataset
 from src.utils.utils import set_seed, move_batch_to_device, plot_gt_pred, metrics_list, plot_avg_rate_and_spike, \
     plot_rate_and_spike
@@ -55,7 +55,7 @@ def load_model_data_local(**kwargs):
     config = update_config(trainer_config, config)
     
     # load the dataset
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')['test']
+    dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')['test']
 
     if config.model.model_class == 'iTransformer':
         num_neurons = len(dataset[0]['cluster_uuids'])
@@ -68,7 +68,7 @@ def load_model_data_local(**kwargs):
         config['data']['max_space_length'] = num_neurons
         print(f'number of neurons: {num_neurons}')
 
-    dataloader = make_loader(
+    dataloader = make_loader_flex(
         dataset,
         target=config.data.target,
         load_meta=config.data.load_meta,
@@ -76,7 +76,6 @@ def load_model_data_local(**kwargs):
         pad_to_right=True,
         pad_value=-1.,
         max_time_length=config.data.max_time_length,
-        max_space_length=config.data.max_space_length,
         dataset_name=config.data.dataset_name,
         sort_by_depth=config.data.sort_by_depth,
         sort_by_region=config.data.sort_by_region,
@@ -447,9 +446,7 @@ def co_smoothing_eval(
                     outputs = model(
                         mask_result['spikes'],
                         time_attn_mask=batch['time_attn_mask'],
-                        space_attn_mask=batch['space_attn_mask'],
                         spikes_timestamps=batch['spikes_timestamps'],
-                        spikes_spacestamps=batch['spikes_spacestamps'],
                         targets=batch['target'],
                         neuron_regions=batch['neuron_regions'],
                         eid=batch['eid'][0]
@@ -520,16 +517,14 @@ def co_smoothing_eval(
                     heldout_idxs=target_idxs,  # mask all the heldout neurons, make this safer. (no leakage)
                 )
                 outputs = model(
-                    mask_result['spikes'],
-                    time_attn_mask=batch['time_attn_mask'],
-                    space_attn_mask=batch['space_attn_mask'],
-                    spikes_timestamps=batch['spikes_timestamps'],
-                    spikes_spacestamps=batch['spikes_spacestamps'],
-                    targets=batch['target'],
-                    neuron_regions=batch['neuron_regions'],
-                    target_idxs=target_idxs,  # need this in regression mode
-                    eid=batch['eid'][0],
-                )
+                        mask_result['spikes'],
+                        time_attn_mask=batch['time_attn_mask'],
+                        spikes_timestamps=batch['spikes_timestamps'],
+                        targets=batch['target'],
+                        neuron_regions=batch['neuron_regions'],
+                        target_idxs=self.target_idxs,  # for ndt regression
+                        eid=batch['eid'][0],
+                    )
                 pred_list.append(outputs.preds)
 
         gt_spike_data = torch.cat(gt_list, 0)
@@ -602,15 +597,13 @@ def co_smoothing_eval(
                 # print(torch.nonzero(_check == 0).squeeze())
                 
                 outputs = model(
-                    mask_result['spikes'],
-                    time_attn_mask=batch['time_attn_mask'],
-                    space_attn_mask=batch['space_attn_mask'],
-                    spikes_timestamps=batch['spikes_timestamps'],
-                    spikes_spacestamps=batch['spikes_spacestamps'],
-                    targets=batch['target'],
-                    neuron_regions=batch['neuron_regions'],
-                    eid=batch['eid'][0],
-                )
+                        mask_result['spikes'],
+                        time_attn_mask=batch['time_attn_mask'],
+                        spikes_timestamps=batch['spikes_timestamps'],
+                        targets=batch['target'],
+                        neuron_regions=batch['neuron_regions'],
+                        eid=batch['eid'][0]
+                    )
                 pred_list.append(outputs.preds)
 
         gt_spike_data = torch.cat(gt_list, 0)
@@ -698,12 +691,10 @@ def co_smoothing_eval(
                     outputs = model(
                         mask_result['spikes'],
                         time_attn_mask=batch['time_attn_mask'],
-                        space_attn_mask=batch['space_attn_mask'],
                         spikes_timestamps=batch['spikes_timestamps'],
-                        spikes_spacestamps=batch['spikes_spacestamps'],
                         targets=batch['target'],
                         neuron_regions=batch['neuron_regions'],
-                        eid=batch['eid'][0],
+                        eid=batch['eid'][0]
                     )
                     pred_list.append(outputs.preds)
                     
@@ -800,12 +791,10 @@ def co_smoothing_eval(
                         outputs = model(
                             mask_result['spikes'],
                             time_attn_mask=batch['time_attn_mask'],
-                            space_attn_mask=batch['space_attn_mask'],
                             spikes_timestamps=batch['spikes_timestamps'],
-                            spikes_spacestamps=batch['spikes_spacestamps'],
                             targets=batch['target'],
                             neuron_regions=batch['neuron_regions'],
-                            eid=batch['eid'][0],
+                            eid=batch['eid'][0]
                         )
                         pred_list.append(outputs.preds)
                         
@@ -1004,7 +993,7 @@ def behavior_probe_eval(**kwargs):
     config = update_config(probe_config, config)
 
     # load the dataset
-    dataset = load_dataset(f'neurofm123/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
+    dataset = load_dataset(f'ibl-foundation-model/{eid}_aligned', cache_dir=config.dirs.dataset_cache_dir, download_mode='force_redownload')
     train_dataset = dataset['train']
     test_dataset = dataset['test']
     val_dataset = dataset['val']
@@ -1021,7 +1010,7 @@ def behavior_probe_eval(**kwargs):
         print(f'number of neurons: {num_neurons}')
     num_time_steps = config.data.max_time_length
 
-    train_dataloader = make_loader(
+    train_dataloader = make_loader_flex(
         train_dataset,
         target=config.probe.target,
         load_meta=True,
@@ -1036,7 +1025,7 @@ def behavior_probe_eval(**kwargs):
         shuffle=True
     )
 
-    val_dataloader = make_loader(
+    val_dataloader = make_loader_flex(
         val_dataset,
         target=config.probe.target,
         load_meta=True,
@@ -1051,7 +1040,7 @@ def behavior_probe_eval(**kwargs):
         shuffle=False
     )
 
-    test_dataloader = make_loader(
+    test_dataloader = make_loader_flex(
         test_dataset,
         target=config.probe.target,
         load_meta=True,

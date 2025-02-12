@@ -222,6 +222,7 @@ if args.train:
 
 # ------------------------------------------------------------------------------------
 # Evaluation
+# (Old version should work fine with multi-session models.)
 # ------------------------------------------------------------------------------------
 if args.eval:
     
@@ -239,6 +240,7 @@ if args.eval:
     
     # Fix Args
     n_time_steps = 100
+    eid = 'ecb5520d-1358-434c-95ec-93687ecd1396'  # (just a random in-distribution one)
     
     
     # Configuration
